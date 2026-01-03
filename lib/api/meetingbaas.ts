@@ -137,7 +137,7 @@ export async function listRawCalendars(params: {
   oauthClientId: string
   oauthClientSecret: string
   oauthRefreshToken: string
-  platform: "Google" | "Microsoft"
+  platform: "google" | "microsoft"
 }): Promise<RawCalendar[]> {
   const response = await fetch(`${API_BASE_URL}/calendars/list-raw`, {
     method: "POST",
@@ -146,7 +146,7 @@ export async function listRawCalendars(params: {
       "x-meeting-baas-api-key": API_KEY,
     },
     body: JSON.stringify({
-      platform: params.platform,
+      calendar_platform: params.platform,
       oauth_client_id: params.oauthClientId,
       oauth_client_secret: params.oauthClientSecret,
       oauth_refresh_token: params.oauthRefreshToken,
@@ -178,7 +178,7 @@ export async function createCalendarConnection(params: {
       oauthClientId: params.oauthClientId,
       oauthClientSecret: params.oauthClientSecret,
       oauthRefreshToken: params.oauthRefreshToken,
-      platform: params.platform === "google" ? "Google" : "Microsoft",
+      platform: params.platform,
     })
 
     if (rawCalendars.length === 0) {
