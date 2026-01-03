@@ -1,0 +1,82 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Foundation Colors - OKLCH color space */
+    --primary: 213 100% 43%; /* Blue - CTAs, active states */
+    --foreground: 0 0% 14.5%; /* Near-black text */
+    --background: 0 0% 99.5%; /* Off-white backgrounds */
+
+    /* Semantic Colors */
+    --muted: 0 0% 96%; /* Secondary backgrounds */
+    --muted-foreground: 0 0% 45%;
+    --border: 0 0% 91%; /* Borders, dividers */
+    --input: 0 0% 91%;
+    --accent: 0 0% 96%; /* Hover states */
+    --accent-foreground: 0 0% 14.5%;
+    --destructive: 0 84.2% 60.2%; /* Errors, warnings */
+    --destructive-foreground: 0 0% 98%;
+
+    /* Card */
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 14.5%;
+
+    /* Popover */
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 14.5%;
+
+    /* Secondary */
+    --secondary: 0 0% 96%;
+    --secondary-foreground: 0 0% 14.5%;
+
+    /* Primary foreground */
+    --primary-foreground: 0 0% 98%;
+
+    /* Ring */
+    --ring: 213 100% 43%;
+
+    /* Radius */
+    --radius: 0.5rem;
+
+    /* Chart Colors */
+    --chart-1: 173 58% 39%;
+    --chart-2: 197 37% 24%;
+    --chart-3: 43 74% 66%;
+    --chart-4: 27 87% 67%;
+    --chart-5: 12 76% 61%;
+  }
+
+  .dark {
+    --background: 0 0% 3.9%;
+    --foreground: 0 0% 98%;
+    --card: 0 0% 3.9%;
+    --card-foreground: 0 0% 98%;
+    --popover: 0 0% 3.9%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 213 100% 43%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 0 0% 14.9%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 0 0% 14.9%;
+    --muted-foreground: 0 0% 63.9%;
+    --accent: 0 0% 14.9%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 0 0% 14.9%;
+    --input: 0 0% 14.9%;
+    --ring: 213 100% 43%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}

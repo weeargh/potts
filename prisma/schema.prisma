@@ -1,0 +1,134 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// Users are managed by Supabase Auth
+// We only store additional user data here
+model User {
+  id        String   @id @db.Uuid // Supabase Auth user ID (UUID)
+  email     String   @unique
+  name      String?
+  avatarUrl String?  @map("avatar_url")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  meetings         Meeting[]
+  calendarAccounts CalendarAccount[]
+
+  @@map("users")
+}
+
+// Calendar accounts (Google Calendar OAuth tokens)
+model CalendarAccount {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  provider     String   @default("google") // google, outlook, etc
+  email        String
+  accessToken  String   @map("access_token") // Encrypted
+  refreshToken String?  @map("refresh_token") // Encrypted
+  expiresAt    DateTime @map("expires_at")
+  scope        String // OAuth scopes granted
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, provider, email])
+  @@map("calendar_accounts")
+}
+
+// Meetings / Bots
+model Meeting {
+  id               String   @id @default(uuid()) @db.Uuid
+  userId           String   @map("user_id") @db.Uuid
+  botId            String   @unique @map("bot_id") // MeetingBaas bot ID
+  botName          String   @map("bot_name")
+  meetingUrl       String   @map("meeting_url")
+  calendarEventId  String?  @map("calendar_event_id") // If created from calendar
+  status           String // queued, waiting, recording, completed, failed
+  durationSeconds  Int?     @map("duration_seconds")
+  participantCount Int?     @map("participant_count")
+  videoUrl         String?  @map("video_url")
+  audioUrl         String?  @map("audio_url")
+  transcriptUrl    String?  @map("transcript_url")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+  completedAt      DateTime? @map("completed_at")
+
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transcript  Transcript?
+  summary     Summary?
+  actionItems ActionItem[]
+  participants Participant[]
+
+  @@index([userId, createdAt])
+  @@index([status])
+  @@map("meetings")
+}
+
+// Transcript utterances
+model Transcript {
+  id        String   @id @default(uuid()) @db.Uuid
+  meetingId String   @unique @map("meeting_id") @db.Uuid
+  data      Json // Full transcript JSON
+  createdAt DateTime @default(now()) @map("created_at")
+
+  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@map("transcripts")
+}
+
+// AI-generated summaries
+model Summary {
+  id        String   @id @default(uuid()) @db.Uuid
+  meetingId String   @unique @map("meeting_id") @db.Uuid
+  overview  String
+  keyPoints String[] @map("key_points")
+  decisions String[]
+  nextSteps String[] @map("next_steps")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@map("summaries")
+}
+
+// Action items extracted from meetings
+model ActionItem {
+  id          String    @id @default(uuid()) @db.Uuid
+  meetingId   String    @map("meeting_id") @db.Uuid
+  description String
+  assignee    String?
+  dueDate     String?   @map("due_date")
+  completed   Boolean   @default(false)
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@index([meetingId])
+  @@map("action_items")
+}
+
+// Meeting participants
+model Participant {
+  id        String   @id @default(uuid()) @db.Uuid
+  meetingId String   @map("meeting_id") @db.Uuid
+  name      String
+  email     String?
+  role      String? // host, participant, etc
+  joinedAt  DateTime? @map("joined_at")
+  leftAt    DateTime? @map("left_at")
+
+  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@index([meetingId])
+  @@map("participants")
+}
