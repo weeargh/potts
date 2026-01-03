@@ -19,6 +19,21 @@ function formatTranscript(utterances: TranscriptUtterance[]): string {
     .join("\n")
 }
 
+// Strip markdown code blocks from Claude response
+function cleanJsonResponse(text: string): string {
+  // Remove ```json and ``` markers
+  let cleaned = text.trim()
+  if (cleaned.startsWith("```json")) {
+    cleaned = cleaned.slice(7)
+  } else if (cleaned.startsWith("```")) {
+    cleaned = cleaned.slice(3)
+  }
+  if (cleaned.endsWith("```")) {
+    cleaned = cleaned.slice(0, -3)
+  }
+  return cleaned.trim()
+}
+
 export async function generateSummary(
   utterances: TranscriptUtterance[]
 ): Promise<AISummary> {
@@ -40,7 +55,7 @@ Format your response as JSON with this structure:
   "nextSteps": ["Next step 1", "Next step 2"]
 }
 
-Only include the JSON object in your response, no additional text.
+Only include the JSON object in your response, no additional text or markdown.
 
 Transcript:
 ${transcriptText}`,
@@ -54,7 +69,8 @@ ${transcriptText}`,
   }
 
   try {
-    return JSON.parse(content.text) as AISummary
+    const cleaned = cleanJsonResponse(content.text)
+    return JSON.parse(cleaned) as AISummary
   } catch {
     return {
       overview: content.text,
@@ -93,7 +109,7 @@ Format your response as JSON with this structure:
 
 Only include clear, actionable items that were explicitly mentioned or strongly implied in the meeting.
 If no action items are found, return an empty array.
-Only include the JSON object in your response, no additional text.
+Only include the JSON object in your response, no additional text or markdown.
 
 Transcript:
 ${transcriptText}`,
@@ -107,7 +123,8 @@ ${transcriptText}`,
   }
 
   try {
-    const parsed = JSON.parse(content.text) as { actionItems: ActionItem[] }
+    const cleaned = cleanJsonResponse(content.text)
+    const parsed = JSON.parse(cleaned) as { actionItems: ActionItem[] }
     return parsed.actionItems || []
   } catch {
     return []
