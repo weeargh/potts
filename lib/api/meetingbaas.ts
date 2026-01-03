@@ -72,6 +72,11 @@ export async function getTranscript(
 
   const data = await response.json()
 
+  // Handle nested structure: { result: { utterances: [...] } }
+  if (data.result?.utterances) {
+    return data.result.utterances
+  }
+
   if (Array.isArray(data)) {
     return data
   }
