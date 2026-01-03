@@ -13,10 +13,17 @@ function LoginForm() {
   const handleGoogleLogin = async () => {
     const redirectTo = searchParams.get("redirectedFrom") || "/"
 
+    // Request calendar scopes during login so calendar is auto-connected
+    const calendarScopes = [
+      "https://www.googleapis.com/auth/calendar.readonly",
+      "https://www.googleapis.com/auth/calendar.events.readonly",
+    ].join(" ")
+
     await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
         redirectTo: `${window.location.origin}/auth/callback?next=${redirectTo}`,
+        scopes: calendarScopes,
         queryParams: {
           access_type: "offline",
           prompt: "consent",

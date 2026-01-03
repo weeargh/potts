@@ -2,11 +2,14 @@
 
 import Link from "next/link"
 import Image from "next/image"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import { Home, Calendar, Settings, LogOut } from "lucide-react"
+import { createClient } from "@/lib/supabase/client"
 
 export function AppSidebar() {
   const pathname = usePathname()
+  const router = useRouter()
+  const supabase = createClient()
 
   const navItems = [
     { icon: Home, label: "Dashboard", href: "/" },
@@ -16,6 +19,12 @@ export function AppSidebar() {
   const isActive = (href: string) => {
     if (href === "/") return pathname === "/"
     return pathname.startsWith(href)
+  }
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut()
+    router.push("/login")
+    router.refresh()
   }
 
   return (
@@ -38,11 +47,10 @@ export function AppSidebar() {
           <Link
             key={item.href}
             href={item.href}
-            className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
-              isActive(item.href)
+            className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${isActive(item.href)
                 ? "bg-sidebar-primary text-sidebar-primary-foreground"
                 : "text-sidebar-foreground hover:bg-sidebar-accent"
-            }`}
+              }`}
           >
             <item.icon className="w-5 h-5" />
             <span className="text-sm font-medium">{item.label}</span>
@@ -59,7 +67,10 @@ export function AppSidebar() {
           <Settings className="w-5 h-5" />
           <span className="text-sm font-medium">Settings</span>
         </Link>
-        <button className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sidebar-foreground hover:bg-sidebar-accent transition-colors">
+        <button
+          onClick={handleLogout}
+          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
+        >
           <LogOut className="w-5 h-5" />
           <span className="text-sm font-medium">Logout</span>
         </button>
@@ -67,3 +78,4 @@ export function AppSidebar() {
     </aside>
   )
 }
+
