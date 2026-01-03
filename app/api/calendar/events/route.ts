@@ -10,11 +10,24 @@ export async function GET(request: NextRequest) {
     try {
         // If no calendar_id provided, first get the list of calendars
         if (!calendarId) {
-            const calendars = await listCalendars()
+            let calendars: Awaited<ReturnType<typeof listCalendars>> = []
+
+            try {
+                calendars = await listCalendars()
+            } catch (err) {
+                // No calendars connected yet - this is normal
+                console.log("No calendars connected or MeetingBaas error:", err)
+                return NextResponse.json({
+                    events: [],
+                    calendars: [],
+                    message: "No calendars connected"
+                })
+            }
 
             if (calendars.length === 0) {
                 return NextResponse.json({
                     events: [],
+                    calendars: [],
                     message: "No calendars connected"
                 })
             }
@@ -60,9 +73,11 @@ export async function GET(request: NextRequest) {
         })
     } catch (error) {
         console.error("Failed to fetch calendar events:", error)
-        return NextResponse.json(
-            { error: "Failed to fetch calendar events" },
-            { status: 500 }
-        )
+        return NextResponse.json({
+            events: [],
+            calendars: [],
+            error: "Failed to fetch calendar events"
+        })
     }
 }
+
