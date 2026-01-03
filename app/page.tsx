@@ -1,11 +1,13 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Search, Plus, Volume2 } from "lucide-react"
+import { Search, Plus, Volume2, ChevronDown, ChevronUp } from "lucide-react"
 import { AppLayout } from "@/components/app-layout"
 import { MeetingListItem } from "@/components/meeting-list-item"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { CalendarConnectButton } from "@/components/calendar-connect-button"
+import { UpcomingEvents } from "@/components/upcoming-events"
 import Link from "next/link"
 import type { Meeting } from "@/lib/data/types"
 import { getDateGroup } from "@/lib/utils"
@@ -15,21 +17,24 @@ export default function Dashboard() {
   const [selectedFilter, setSelectedFilter] = useState("all")
   const [meetings, setMeetings] = useState<Meeting[]>([])
   const [loading, setLoading] = useState(true)
+  const [showUpcoming, setShowUpcoming] = useState(true)
+  const [calendarConnected, setCalendarConnected] = useState(false)
+
+  async function loadMeetings() {
+    try {
+      const response = await fetch("/api/bots", { cache: "no-store" })
+      if (response.ok) {
+        const data = await response.json()
+        setMeetings(data.bots || [])
+      }
+    } catch (error) {
+      console.error("Failed to load meetings:", error)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   useEffect(() => {
-    async function loadMeetings() {
-      try {
-        const response = await fetch("/api/bots", { cache: "no-store" })
-        if (response.ok) {
-          const data = await response.json()
-          setMeetings(data.bots || [])
-        }
-      } catch (error) {
-        console.error("Failed to load meetings:", error)
-      } finally {
-        setLoading(false)
-      }
-    }
     loadMeetings()
   }, [])
 
@@ -71,14 +76,31 @@ export default function Dashboard() {
             <h1 className="text-2xl font-semibold text-foreground">Recordings</h1>
             <p className="text-sm text-muted-foreground mt-1">Manage and search your meeting recordings</p>
           </div>
-          <Link href="/meetings/new">
-            <Button className="gap-2">
-              <Plus className="w-4 h-4" />
-              New Recording
-            </Button>
-          </Link>
+          <div className="flex items-center gap-3">
+            <CalendarConnectButton onConnected={() => setCalendarConnected(true)} />
+            <Link href="/meetings/new">
+              <Button className="gap-2">
+                <Plus className="w-4 h-4" />
+                New Recording
+              </Button>
+            </Link>
+          </div>
         </div>
       </div>
+
+      {/* Upcoming Meetings Section */}
+      {calendarConnected && (
+        <div className="border-b border-border px-8 py-4 bg-muted/30">
+          <button
+            onClick={() => setShowUpcoming(!showUpcoming)}
+            className="flex items-center gap-2 text-sm font-medium text-foreground mb-3 hover:text-primary transition-colors"
+          >
+            {showUpcoming ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            Upcoming Meetings
+          </button>
+          {showUpcoming && <UpcomingEvents onRefresh={loadMeetings} />}
+        </div>
+      )}
 
       {/* Search and Filters */}
       <div className="border-b border-border px-8 py-4 bg-background">
@@ -98,11 +120,10 @@ export default function Dashboard() {
               <button
                 key={filter}
                 onClick={() => setSelectedFilter(filter)}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  selectedFilter === filter
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${selectedFilter === filter
                     ? "bg-primary text-primary-foreground"
                     : "bg-muted text-foreground hover:bg-border"
-                }`}
+                  }`}
               >
                 {filter.charAt(0).toUpperCase() + filter.slice(1)}
               </button>

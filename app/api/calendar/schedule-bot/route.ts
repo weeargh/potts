@@ -1,0 +1,31 @@
+import { NextRequest, NextResponse } from "next/server"
+import { scheduleCalendarBot } from "@/lib/api/meetingbaas"
+
+export async function POST(request: NextRequest) {
+    try {
+        const body = await request.json()
+        const { calendar_id, event_id, bot_name } = body
+
+        if (!calendar_id || !event_id) {
+            return NextResponse.json(
+                { error: "calendar_id and event_id are required" },
+                { status: 400 }
+            )
+        }
+
+        const result = await scheduleCalendarBot(calendar_id, event_id, {
+            botName: bot_name || "Potts Recorder",
+        })
+
+        return NextResponse.json({
+            success: true,
+            bot_id: result.bot_id,
+        })
+    } catch (error) {
+        console.error("Failed to schedule bot:", error)
+        return NextResponse.json(
+            { error: "Failed to schedule recording bot" },
+            { status: 500 }
+        )
+    }
+}
