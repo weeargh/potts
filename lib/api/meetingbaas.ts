@@ -126,6 +126,42 @@ export interface CalendarEvent {
   bot_id?: string | null
 }
 
+// List raw calendars from OAuth credentials (needed to get raw_calendar_id)
+export interface RawCalendar {
+  id: string
+  name: string
+  email?: string
+}
+
+export async function listRawCalendars(params: {
+  oauthClientId: string
+  oauthClientSecret: string
+  oauthRefreshToken: string
+  platform: "Google" | "Microsoft"
+}): Promise<RawCalendar[]> {
+  const response = await fetch(`${API_BASE_URL}/calendars/list-raw`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-meeting-baas-api-key": API_KEY,
+    },
+    body: JSON.stringify({
+      platform: params.platform,
+      oauth_client_id: params.oauthClientId,
+      oauth_client_secret: params.oauthClientSecret,
+      oauth_refresh_token: params.oauthRefreshToken,
+    }),
+  })
+
+  if (!response.ok) {
+    const error = await response.text()
+    throw new Error(`Failed to list raw calendars: ${error}`)
+  }
+
+  const data = await response.json()
+  return data.data || data.calendars || []
+}
+
 export async function createCalendarConnection(params: {
   oauthClientId: string
   oauthClientSecret: string
@@ -133,6 +169,28 @@ export async function createCalendarConnection(params: {
   platform: "google" | "microsoft"
   rawCalendarId?: string
 }): Promise<CalendarConnection> {
+  let rawCalendarId = params.rawCalendarId
+
+  // If no raw_calendar_id provided, fetch the list of raw calendars first
+  if (!rawCalendarId) {
+    console.log("No raw_calendar_id provided, fetching raw calendars...")
+    const rawCalendars = await listRawCalendars({
+      oauthClientId: params.oauthClientId,
+      oauthClientSecret: params.oauthClientSecret,
+      oauthRefreshToken: params.oauthRefreshToken,
+      platform: params.platform === "google" ? "Google" : "Microsoft",
+    })
+
+    if (rawCalendars.length === 0) {
+      throw new Error("No calendars found for this account")
+    }
+
+    // Use the first (primary) calendar
+    const primaryCalendar = rawCalendars[0]!
+    rawCalendarId = primaryCalendar.id
+    console.log("Using raw calendar:", rawCalendarId, primaryCalendar.name)
+  }
+
   const response = await fetch(`${API_BASE_URL}/calendars`, {
     method: "POST",
     headers: {
@@ -144,7 +202,7 @@ export async function createCalendarConnection(params: {
       oauth_client_id: params.oauthClientId,
       oauth_client_secret: params.oauthClientSecret,
       oauth_refresh_token: params.oauthRefreshToken,
-      ...(params.rawCalendarId && { raw_calendar_id: params.rawCalendarId }),
+      raw_calendar_id: rawCalendarId,
     }),
   })
 
