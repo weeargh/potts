@@ -189,6 +189,9 @@ export async function createCalendarConnection(params: {
     const primaryCalendar = rawCalendars[0]!
     rawCalendarId = primaryCalendar.id
     console.log("Using raw calendar:", rawCalendarId, primaryCalendar.name)
+
+    // Wait 1.5 seconds to avoid MeetingBaas rate limit (1 req/sec)
+    await new Promise(resolve => setTimeout(resolve, 1500))
   }
 
   const response = await fetch(`${API_BASE_URL}/calendars`, {
