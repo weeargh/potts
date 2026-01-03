@@ -105,6 +105,8 @@ export async function GET(request: NextRequest) {
             }, { status: 500 })
         }
 
-        return NextResponse.redirect(`${origin}/?error=calendar_connection_failed`)
+        // Include error message in URL for debugging
+        const errorMsg = err instanceof Error ? encodeURIComponent(err.message) : "unknown"
+        return NextResponse.redirect(`${origin}/?error=calendar_connection_failed&details=${errorMsg}`)
     }
 }

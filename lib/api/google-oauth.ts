@@ -5,6 +5,7 @@ const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || ""
 const SCOPES = [
     "https://www.googleapis.com/auth/calendar.readonly",
     "https://www.googleapis.com/auth/calendar.events.readonly",
+    "https://www.googleapis.com/auth/userinfo.email",
 ]
 
 export function getGoogleAuthUrl(redirectUri: string, state?: string): string {
