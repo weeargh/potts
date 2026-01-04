@@ -28,34 +28,49 @@ export async function GET(request: NextRequest) {
             let calendars: Awaited<ReturnType<typeof listCalendars>> = []
             try {
                 calendars = await listCalendars()
+                console.log("MeetingBaas calendars fetched:", calendars.length, calendars.map(c => c.calendar_id))
             } catch (err) {
                 console.log("No calendars connected or MeetingBaas error:", err)
                 return NextResponse.json({ events: [], calendars: [], message: "No calendars connected" })
             }
 
             if (calendars.length === 0) {
+                console.log("No calendars found on MeetingBaas")
                 return NextResponse.json({ events: [], calendars: [], message: "No calendars connected" })
             }
 
-            // For "all calendars", we just fetch cache-first for each
-            // This is slightly inefficient but safer than complex multi-cal caching logic right now
-            const allEvents = await Promise.all(
-                calendars.map(async (cal) => {
-                    return await getEventsWithCache(cal.calendar_id, forceRefresh, startDate, endDate)
-                })
-            )
-            const events = allEvents
-                .flat()
-                .filter((e: { meeting_url?: string }) => e.meeting_url)
-                .sort((a: { start_time: string }, b: { start_time: string }) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
+            // Map calendars to frontend format first (so we always return them)
+            const mappedCalendars = calendars.map(cal => ({
+                uuid: cal.calendar_id,
+                email: cal.account_email,
+                name: cal.account_email.split('@')[0] || 'Calendar',
+            }))
+            console.log("Mapped calendars for frontend:", mappedCalendars)
+
+            // For "all calendars", fetch events but don't fail if events fetching fails
+            let events: { meeting_url?: string; start_time: string }[] = []
+            try {
+                const allEvents = await Promise.all(
+                    calendars.map(async (cal) => {
+                        try {
+                            return await getEventsWithCache(cal.calendar_id, forceRefresh, startDate, endDate)
+                        } catch (eventErr) {
+                            console.warn(`Failed to get events for calendar ${cal.calendar_id}:`, eventErr)
+                            return []
+                        }
+                    })
+                )
+                events = allEvents
+                    .flat()
+                    .filter((e: { meeting_url?: string }) => e.meeting_url)
+                    .sort((a: { start_time: string }, b: { start_time: string }) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
+            } catch (eventsErr) {
+                console.error("Failed to fetch events (returning calendars anyway):", eventsErr)
+            }
 
             return NextResponse.json({
                 events,
-                calendars: calendars.map(cal => ({
-                    uuid: cal.calendar_id,
-                    email: cal.account_email,
-                    name: cal.account_email.split('@')[0] || 'Calendar', // Use email prefix as name
-                }))
+                calendars: mappedCalendars
             })
         }
 
