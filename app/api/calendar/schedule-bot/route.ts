@@ -1,8 +1,20 @@
 import { NextRequest, NextResponse } from "next/server"
 import { scheduleCalendarBot } from "@/lib/api/meetingbaas"
+import { createClient } from "@/lib/supabase/server"
 
 export async function POST(request: NextRequest) {
     try {
+        // Authenticate user
+        const supabase = await createClient()
+        const { data: { user }, error: authError } = await supabase.auth.getUser()
+
+        if (authError || !user) {
+            return NextResponse.json(
+                { error: "Unauthorized" },
+                { status: 401 }
+            )
+        }
+
         const body = await request.json()
         const { calendar_id, event_id, bot_name } = body
 

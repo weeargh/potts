@@ -15,7 +15,6 @@ import { useMeetings } from "@/lib/hooks/use-meetings"
 
 export default function Dashboard() {
   const [searchQuery, setSearchQuery] = useState("")
-  const [searchQuery, setSearchQuery] = useState("")
   const [selectedFilter, setSelectedFilter] = useState("all")
 
   const { meetings, isLoading: loading, mutate: reloadMeetings } = useMeetings()

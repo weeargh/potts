@@ -2,17 +2,35 @@ import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { getBotStatus, getTranscript } from "@/lib/api/meetingbaas"
 import { generateSummary, extractActionItems } from "@/lib/api/claude"
+import { createClient } from "@/lib/supabase/server"
+import { logger } from "@/lib/logger"
+
+const apiLogger = logger.child('api:bots:id')
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Authenticate user
+    const supabase = await createClient()
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+
+    if (authError || !user) {
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 }
+      )
+    }
+
     const { id } = await params
 
-    // 1. Try fetching from Database first
-    const dbMeeting = await prisma.meeting.findUnique({
-      where: { botId: id },
+    // 1. Try fetching from Database first - verify user owns this meeting
+    const dbMeeting = await prisma.meeting.findFirst({
+      where: {
+        botId: id,
+        userId: user.id // Only return if user owns this meeting
+      },
       include: {
         transcript: true,
         summary: true,
@@ -22,7 +40,7 @@ export async function GET(
 
     // If we have a completed meeting with summary in DB, return it instantly!
     if (dbMeeting && dbMeeting.status === "completed" && dbMeeting.summary) {
-      console.log("Serving meeting from DB:", id)
+      apiLogger.info("Serving completed meeting from database", { bot_id: id, user_id: user.id })
       return NextResponse.json({
         ...dbMeeting,
         bot_id: dbMeeting.botId,
@@ -40,7 +58,12 @@ export async function GET(
     }
 
     // 2. Fallback: Fetch from MeetingBaas API
-    console.log("Meeting not in DB or incomplete, fetching from API:", id)
+    apiLogger.info("Meeting not in database or incomplete, fetching from MeetingBaas API", {
+      bot_id: id,
+      user_id: user.id,
+      has_db_meeting: !!dbMeeting,
+      db_status: dbMeeting?.status
+    })
     const meeting = await getBotStatus(id)
 
     // Check if we can upgrade this to a completed meeting with summary
@@ -64,46 +87,42 @@ export async function GET(
         }
 
         // SAVE to DB for next time (Lazy persistence)
-        await prisma.meeting.upsert({
-          where: { botId: id },
-          update: {
-            status: "completed",
-            durationSeconds: meeting.duration_seconds,
-            videoUrl: meeting.video,
-            audioUrl: meeting.audio,
-            transcriptUrl: meeting.transcription,
-            completedAt: new Date(),
-          },
-          create: {
-            botId: id,
-            userId: "00000000-0000-0000-0000-000000000000",
-            botName: meeting.bot_name || "Unknown Meeting",
-            meetingUrl: meeting.meeting_url || "unknown",
-            status: "completed",
-          }
-        }).then(async (m) => {
-          // Save transcript
-          await prisma.transcript.upsert({
-            where: { meetingId: m.id },
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            update: { data: utterances as any },
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            create: { meetingId: m.id, data: utterances as any }
-          })
-
-          // Save Summary if we generated it
-          if (summary && !dbMeeting?.summary) {
-            await prisma.summary.create({
-              data: {
-                meetingId: m.id,
-                overview: summary.overview,
-                keyPoints: summary.keyPoints,
-                decisions: summary.decisions,
-                nextSteps: summary.nextSteps
-              }
+        // Only update if meeting already exists (which it should from POST /api/bots)
+        if (dbMeeting) {
+          await prisma.meeting.update({
+            where: { id: dbMeeting.id },
+            data: {
+              status: "completed",
+              durationSeconds: meeting.duration_seconds,
+              videoUrl: meeting.video,
+              audioUrl: meeting.audio,
+              transcriptUrl: meeting.transcription,
+              completedAt: new Date(),
+            }
+          }).then(async (m) => {
+            // Save transcript
+            await prisma.transcript.upsert({
+              where: { meetingId: m.id },
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              update: { data: utterances as any },
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              create: { meetingId: m.id, data: utterances as any }
             })
-          }
-        }).catch(err => console.error("Failed to lazy-save meeting:", err))
+
+            // Save Summary if we generated it
+            if (summary && !dbMeeting?.summary) {
+              await prisma.summary.create({
+                data: {
+                  meetingId: m.id,
+                  overview: summary.overview,
+                  keyPoints: summary.keyPoints,
+                  decisions: summary.decisions,
+                  nextSteps: summary.nextSteps
+                }
+              })
+            }
+          }).catch(err => console.error("Failed to lazy-save meeting:", err))
+        }
 
         return NextResponse.json({
           ...meeting,
@@ -121,7 +140,9 @@ export async function GET(
 
     return NextResponse.json(meeting)
   } catch (error) {
-    console.error("Error fetching bot:", error)
+    apiLogger.error("Failed to fetch bot details", error instanceof Error ? error : undefined, {
+      bot_id: (await params).id
+    })
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to fetch bot" },
       { status: 500 }

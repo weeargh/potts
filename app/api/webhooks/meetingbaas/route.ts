@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { getTranscript } from "@/lib/api/meetingbaas"
 import { generateSummary, extractActionItems } from "@/lib/api/claude"
+import { logger } from "@/lib/logger"
+
 const CALLBACK_SECRET = process.env.MEETINGBAAS_CALLBACK_SECRET || ""
+const webhookLogger = logger.child('webhook:meetingbaas')
 
 /**
  * Webhook endpoint to receive MeetingBaas bot.completed and bot.failed callbacks
@@ -11,20 +14,24 @@ const CALLBACK_SECRET = process.env.MEETINGBAAS_CALLBACK_SECRET || ""
  */
 export async function POST(request: NextRequest) {
     try {
-        // Verify the callback secret if configured
-        if (CALLBACK_SECRET) {
-            const providedSecret = request.headers.get("x-mb-secret")
-            if (providedSecret !== CALLBACK_SECRET) {
-                console.error("MeetingBaas webhook: Invalid secret")
-                return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-            }
+        // Verify the callback secret is configured
+        if (!CALLBACK_SECRET) {
+            webhookLogger.error("MEETINGBAAS_CALLBACK_SECRET environment variable is not configured")
+            return NextResponse.json({ error: "Server configuration error" }, { status: 500 })
+        }
+
+        // Verify the callback secret
+        const providedSecret = request.headers.get("x-mb-secret")
+        if (providedSecret !== CALLBACK_SECRET) {
+            webhookLogger.warn("Webhook request with invalid secret")
+            return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
         }
 
         const payload = await request.json()
         const event = payload.event as string
         const data = payload.data
 
-        console.log(`MeetingBaas webhook received: ${event}`, {
+        webhookLogger.info(`Webhook received: ${event}`, {
             bot_id: data?.bot_id,
             status: data?.status?.code || data?.error_code
         })
@@ -43,12 +50,14 @@ export async function POST(request: NextRequest) {
                 break
 
             default:
-                console.log(`Unhandled webhook event: ${event}`)
+                webhookLogger.warn(`Unhandled webhook event: ${event}`)
         }
 
         return NextResponse.json({ success: true })
     } catch (error) {
-        console.error("MeetingBaas webhook error:", error)
+        webhookLogger.error("Webhook processing failed", error instanceof Error ? error : undefined, {
+            error: error instanceof Error ? error.message : String(error)
+        })
         return NextResponse.json(
             { error: "Webhook processing failed" },
             { status: 500 }
@@ -72,45 +81,44 @@ async function handleBotCompleted(data: {
     speakers?: string[]
     extra?: Record<string, unknown>
 }) {
-    console.log("Bot completed:", data.bot_id)
+    webhookLogger.info("Processing bot.completed event", { bot_id: data.bot_id })
 
     try {
-        // 1. Update meeting status in DB
-        const meeting = await prisma.meeting.upsert({
-            where: { botId: data.bot_id },
-            update: {
+        // 1. Find the existing meeting record
+        const meeting = await prisma.meeting.findUnique({
+            where: { botId: data.bot_id }
+        })
+
+        if (!meeting) {
+            webhookLogger.error("Webhook received for unknown bot - meeting not found in database", undefined, {
+                bot_id: data.bot_id,
+                note: "Meeting should have been created in POST /api/bots"
+            })
+            return
+        }
+
+        // 2. Update meeting status in DB
+        await prisma.meeting.update({
+            where: { id: meeting.id },
+            data: {
                 status: "completed",
                 durationSeconds: data.duration_seconds,
                 videoUrl: data.mp4,
                 audioUrl: data.audio,
-                diarizationUrl: data.diarization, // Save diarization URL
-                transcriptUrl: data.raw_transcription, // Save raw transcript URL
+                diarizationUrl: data.diarization,
+                transcriptUrl: data.raw_transcription,
                 completedAt: new Date(),
-            },
-            create: {
-                // Fallback creation if not exists (should rarely happen if created via API)
-                botId: data.bot_id,
-                userId: "00000000-0000-0000-0000-000000000000", // Placeholder if unknown
-                user: { connect: { email: "unknown@example.com" } }, // This might fail, ideally we find user ownership earlier
-                botName: "Unknown Meeting",
-                meetingUrl: "unknown",
-                status: "completed",
             }
-        }).catch(err => {
-            console.error("Failed to upsert meeting:", err)
-            return null
         })
-
-        if (!meeting) {
-            console.error("Could not find or create meeting for bot:", data.bot_id)
-            return
-        }
 
         // 2. Fetch and save transcript if available
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         let utterances: any[] = []
         if (data.transcription) {
-            console.log("Fetching transcript from:", data.transcription)
+            webhookLogger.info("Fetching transcript", {
+                bot_id: data.bot_id,
+                transcript_url: data.transcription
+            })
             utterances = await getTranscript(data.transcription)
 
             await prisma.transcript.upsert({
@@ -123,12 +131,18 @@ async function handleBotCompleted(data: {
                     data: utterances as any
                 }
             })
-            console.log("Transcript saved to DB")
+            webhookLogger.info("Transcript saved to database", {
+                bot_id: data.bot_id,
+                utterance_count: utterances.length
+            })
         }
 
         // 3. Generate and save summary/actions if we have transcript
         if (utterances.length > 0) {
-            console.log("Generating summary and action items...")
+            webhookLogger.info("Generating AI summary and action items", {
+                bot_id: data.bot_id,
+                utterance_count: utterances.length
+            })
             const [summary, actionItems] = await Promise.all([
                 generateSummary(utterances),
                 extractActionItems(utterances)
@@ -169,11 +183,17 @@ async function handleBotCompleted(data: {
                     }))
                 })
             }
-            console.log("Summary and action items saved to DB")
+            webhookLogger.info("Summary and action items saved to database", {
+                bot_id: data.bot_id,
+                action_item_count: actionItems.length
+            })
         }
 
     } catch (error) {
-        console.error("Error processing bot completion:", error)
+        webhookLogger.error("Error processing bot completion", error instanceof Error ? error : undefined, {
+            bot_id: data.bot_id,
+            error: error instanceof Error ? error.message : String(error)
+        })
         // Don't throw, we want to return 200 OK to the webhook
     }
 }
@@ -188,11 +208,32 @@ async function handleBotFailed(data: {
     error_message?: string
     extra?: Record<string, unknown>
 }) {
-    console.error("Bot failed:", data.bot_id, data.error_code, data.error_message)
+    webhookLogger.error("Bot failed", undefined, {
+        bot_id: data.bot_id,
+        error_code: data.error_code,
+        error_message: data.error_message,
+        extra: data.extra
+    })
 
-    // TODO: Implement your error handling logic
-    // - Log the error for monitoring
-    // - Notify users of the failure
+    // Update meeting status in database
+    try {
+        await prisma.meeting.update({
+            where: { botId: data.bot_id },
+            data: {
+                status: "failed",
+                errorCode: data.error_code,
+                errorMessage: data.error_message,
+            }
+        })
+        webhookLogger.info("Meeting marked as failed in database", { bot_id: data.bot_id })
+    } catch (error) {
+        webhookLogger.error("Failed to update meeting status", error instanceof Error ? error : undefined, {
+            bot_id: data.bot_id
+        })
+    }
+
+    // TODO: Implement user notification system
+    // - Send email/push notification to user
     // - Retry if appropriate (e.g., for TRANSCRIPTION_FAILED)
 }
 
@@ -205,9 +246,30 @@ async function handleStatusChange(data: {
     status?: { code: string; created_at: string }
     extra?: Record<string, unknown>
 }) {
-    console.log("Bot status changed:", data.bot_id, data.status?.code)
+    webhookLogger.debug("Bot status changed", {
+        bot_id: data.bot_id,
+        status_code: data.status?.code,
+        timestamp: data.status?.created_at
+    })
+
+    // Update meeting status in database
+    try {
+        if (data.status?.code) {
+            await prisma.meeting.update({
+                where: { botId: data.bot_id },
+                data: {
+                    status: data.status.code,
+                }
+            })
+        }
+    } catch (error) {
+        webhookLogger.warn("Failed to update meeting status", {
+            bot_id: data.bot_id,
+            error: error instanceof Error ? error.message : String(error)
+        })
+    }
 
     // TODO: Implement real-time status updates
     // - Update UI via websockets/SSE
-    // - Update database with current status
+    // - Push status to connected clients
 }

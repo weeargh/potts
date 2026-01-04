@@ -1,8 +1,20 @@
 import { NextRequest, NextResponse } from "next/server"
 import { listCalendars, listCalendarEvents } from "@/lib/api/meetingbaas"
 import { prisma } from "@/lib/prisma"
+import { createClient } from "@/lib/supabase/server"
 
 export async function GET(request: NextRequest) {
+    // Authenticate user
+    const supabase = await createClient()
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+
+    if (authError || !user) {
+        return NextResponse.json(
+            { error: "Unauthorized" },
+            { status: 401 }
+        )
+    }
+
     const { searchParams } = new URL(request.url)
     const calendarId = searchParams.get("calendar_id")
     const startDate = searchParams.get("start_date")
@@ -34,8 +46,8 @@ export async function GET(request: NextRequest) {
             )
             const events = allEvents
                 .flat()
-                .filter(e => e.meeting_url)
-                .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
+                .filter((e: { meeting_url?: string }) => e.meeting_url)
+                .sort((a: { start_time: string }, b: { start_time: string }) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
 
             return NextResponse.json({ events, calendars })
         }
@@ -44,7 +56,7 @@ export async function GET(request: NextRequest) {
         const events = await getEventsWithCache(calendarId, forceRefresh, startDate, endDate)
 
         return NextResponse.json({
-            events: events.filter(e => e.meeting_url)
+            events: events.filter((e: { meeting_url?: string }) => e.meeting_url)
         })
     } catch (error) {
         console.error("Failed to fetch calendar events:", error)

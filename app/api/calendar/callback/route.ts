@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { exchangeCodeForTokens, getGoogleCredentials } from "@/lib/api/google-oauth"
 import { createCalendarConnection } from "@/lib/api/meetingbaas"
 import { createClient } from "@/lib/supabase/server"
+import { encrypt } from "@/lib/crypto"
 
 export async function GET(request: NextRequest) {
     const { searchParams, origin } = new URL(request.url)
@@ -57,18 +58,23 @@ export async function GET(request: NextRequest) {
         console.log("Supabase user:", user?.id)
 
         if (user && calendar.account_email) {
-            // Store calendar connection in Supabase
+            // Store calendar connection in Supabase with encrypted tokens
             const expiresAt = new Date(Date.now() + tokens.expires_in * 1000)
+
+            // Encrypt sensitive tokens before storing
+            const encryptedAccessToken = encrypt(tokens.access_token)
+            const encryptedRefreshToken = encrypt(tokens.refresh_token)
 
             const { error: dbError } = await supabase.from("calendar_accounts").upsert({
                 user_id: user.id,
                 provider: "google",
                 email: calendar.account_email,
-                access_token: tokens.access_token,
-                refresh_token: tokens.refresh_token,
+                access_token: encryptedAccessToken,
+                refresh_token: encryptedRefreshToken,
                 expires_at: expiresAt.toISOString(),
                 scope: tokens.scope,
                 is_active: true,
+                meetingbaas_calendar_id: calendar.calendar_id,
             }, {
                 onConflict: "user_id,provider,email",
             })
