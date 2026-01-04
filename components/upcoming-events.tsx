@@ -51,6 +51,7 @@ export function UpcomingEvents({ onRefresh }: UpcomingEventsProps) {
                 body: JSON.stringify({
                     calendar_id: event.calendar_id,
                     event_id: event.event_id,
+                    series_id: event.series_id,
                     bot_name: `Potts - ${event.title}`,
                 }),
             })

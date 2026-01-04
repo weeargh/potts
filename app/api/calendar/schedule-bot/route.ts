@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
         }
 
         const body = await request.json()
-        const { calendar_id, event_id, bot_name } = body
+        const { calendar_id, event_id, series_id, bot_name } = body
 
         if (!calendar_id || !event_id) {
             return NextResponse.json(
@@ -27,6 +27,7 @@ export async function POST(request: NextRequest) {
 
         const result = await scheduleCalendarBot(calendar_id, event_id, {
             botName: bot_name || "Potts Recorder",
+            seriesId: series_id, // Pass series_id to fix MeetingBaas API validation
         })
 
         return NextResponse.json({

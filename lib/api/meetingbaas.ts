@@ -462,11 +462,9 @@ export async function scheduleCalendarBot(
   }
 
   const body: Record<string, unknown> = {
-    // Either use event_id or series_id
-    ...(botConfig?.seriesId
-      ? { series_id: botConfig.seriesId }
-      : { event_id: eventId }
-    ),
+    // Include both event_id and series_id - MeetingBaas requires both
+    event_id: eventId,
+    ...(botConfig?.seriesId && { series_id: botConfig.seriesId }),
     all_occurrences: botConfig?.allOccurrences || false,
     bot_name: botConfig?.botName || "Potts Recorder",
     ...(botConfig?.botImage && { bot_image: botConfig.botImage }),
