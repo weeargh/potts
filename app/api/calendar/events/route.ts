@@ -49,7 +49,14 @@ export async function GET(request: NextRequest) {
                 .filter((e: { meeting_url?: string }) => e.meeting_url)
                 .sort((a: { start_time: string }, b: { start_time: string }) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
 
-            return NextResponse.json({ events, calendars })
+            return NextResponse.json({
+                events,
+                calendars: calendars.map(cal => ({
+                    uuid: cal.calendar_id,
+                    email: cal.account_email,
+                    name: cal.account_email.split('@')[0] || 'Calendar', // Use email prefix as name
+                }))
+            })
         }
 
         // Get events for specific calendar with caching
