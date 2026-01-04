@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Calendar, Video, Loader2, Clock } from "lucide-react"
+import { Calendar, Video, Loader2, Clock, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import type { CalendarEvent } from "@/lib/api/meetingbaas"
@@ -166,6 +166,23 @@ export function UpcomingEvents({ onRefresh }: UpcomingEventsProps) {
                     +{events.length - 3} more meetings
                 </p>
             )}
+
+            <div className="flex justify-center pt-2">
+                <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={loadEvents}
+                    disabled={loading}
+                    className="gap-1.5 text-muted-foreground hover:text-foreground"
+                >
+                    {loading ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                        <RefreshCw className="w-4 h-4" />
+                    )}
+                    Refresh
+                </Button>
+            </div>
         </div>
     )
 }
