@@ -134,6 +134,10 @@ async function getEventsWithCache(calendarId: string, forceRefresh: boolean, sta
         endDate: endDate || undefined,
         limit: 50,
     })
+    console.log(`Fetched ${events.length} events from MeetingBaas for calendar ${calendarId}`)
+    if (events.length > 0) {
+        console.log("First event:", events[0]?.title, events[0]?.start_time)
+    }
 
     // 4. Save to DB (Upsert)
     // We do this asynchronously to not block the UI response too much, 
