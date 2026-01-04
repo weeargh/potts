@@ -42,18 +42,35 @@ export async function GET(request: NextRequest) {
             return NextResponse.redirect(`${origin}/?error=missing_google_credentials`)
         }
 
-        // Check for existing calendar connections and remove them first
-        // This handles "reconnection" scenarios where user is re-authorizing
-        console.log("Checking for existing calendar connections...")
+        // PROACTIVE CLEANUP: Delete any existing Google calendars before creating new one
+        // This fixes duplicate calendar issues and ensures a clean state
+        console.log("Checking for existing calendar connections to cleanup...")
         try {
             const existingCalendars = await listCalendars()
             console.log("Found existing calendars:", existingCalendars.length)
 
-            // We'll create the connection first to get the email, then clean up duplicates
-            // But if we can identify the email from existing calendars, we can delete first
-            // For now, we'll handle this after creation by catching errors
+            // Delete ALL existing Google calendars proactively
+            for (const cal of existingCalendars) {
+                if (cal.calendar_platform === 'google') {
+                    console.log(`Proactively deleting existing calendar: ${cal.calendar_id} (${cal.account_email})`)
+                    try {
+                        await deleteCalendar(cal.calendar_id)
+                        // Rate limit pause between deletions
+                        await new Promise(resolve => setTimeout(resolve, 1500))
+                    } catch (delErr) {
+                        console.warn(`Failed to delete calendar ${cal.calendar_id}:`, delErr)
+                        // Continue with other deletions
+                    }
+                }
+            }
+
+            if (existingCalendars.filter(c => c.calendar_platform === 'google').length > 0) {
+                // Extra pause after cleanup before creating new connection
+                console.log("Waiting after cleanup before creating new connection...")
+                await new Promise(resolve => setTimeout(resolve, 2000))
+            }
         } catch (listErr) {
-            console.log("No existing calendars or error listing:", listErr)
+            console.log("No existing calendars or error listing (this is OK):", listErr)
         }
 
         // Create calendar connection in MeetingBaas
@@ -66,49 +83,11 @@ export async function GET(request: NextRequest) {
                 oauthRefreshToken: tokens.refresh_token,
                 platform: "google",
             })
-            console.log("MeetingBaas calendar created:", calendar)
+            console.log("MeetingBaas calendar created successfully:", calendar)
         } catch (createErr) {
-            // If creation fails, it might be because the calendar already exists
-            // Try to find and delete the existing calendar, then retry
             const errorMessage = createErr instanceof Error ? createErr.message : String(createErr)
-            console.log("Calendar creation failed, checking if it's a duplicate:", errorMessage)
-
-            if (errorMessage.toLowerCase().includes('already') ||
-                errorMessage.toLowerCase().includes('exists') ||
-                errorMessage.toLowerCase().includes('duplicate')) {
-                console.log("Detected duplicate calendar, attempting to remove and retry...")
-
-                try {
-                    // List calendars to find the duplicate
-                    const existingCalendars = await listCalendars()
-
-                    // Delete all google calendars and retry (user is reconnecting)
-                    for (const cal of existingCalendars) {
-                        if (cal.calendar_platform === 'google') {
-                            console.log(`Deleting existing calendar: ${cal.calendar_id} (${cal.account_email})`)
-                            await deleteCalendar(cal.calendar_id)
-                            // Rate limit pause
-                            await new Promise(resolve => setTimeout(resolve, 1500))
-                        }
-                    }
-
-                    // Retry creation
-                    console.log("Retrying calendar creation after cleanup...")
-                    calendar = await createCalendarConnection({
-                        oauthClientId: clientId,
-                        oauthClientSecret: clientSecret,
-                        oauthRefreshToken: tokens.refresh_token,
-                        platform: "google",
-                    })
-                    console.log("MeetingBaas calendar created after retry:", calendar)
-                } catch (retryErr) {
-                    console.error("Failed to create calendar after cleanup:", retryErr)
-                    throw retryErr
-                }
-            } else {
-                // Not a duplicate error, rethrow
-                throw createErr
-            }
+            console.error("Calendar creation failed:", errorMessage)
+            throw createErr
         }
 
         // Get current user from Supabase
