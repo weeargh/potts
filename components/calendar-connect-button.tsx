@@ -19,19 +19,6 @@ export function CalendarConnectButton({ onConnected }: CalendarConnectButtonProp
     const [isLoading, setIsLoading] = useState(true)
     const [isConnecting, setIsConnecting] = useState(false)
 
-    useEffect(() => {
-        checkConnection()
-
-        // Check URL params for connection status
-        const params = new URLSearchParams(window.location.search)
-        if (params.get("calendar_connected") === "true") {
-            checkConnection()
-            onConnected?.()
-            // Clean up URL
-            window.history.replaceState({}, "", window.location.pathname)
-        }
-    }, [checkConnection, onConnected])
-
     const checkConnection = useCallback(async () => {
         try {
             const response = await fetch("/api/calendar/events")
@@ -46,6 +33,19 @@ export function CalendarConnectButton({ onConnected }: CalendarConnectButtonProp
             setIsLoading(false)
         }
     }, [onConnected])
+
+    useEffect(() => {
+        checkConnection()
+
+        // Check URL params for connection status
+        const params = new URLSearchParams(window.location.search)
+        if (params.get("calendar_connected") === "true") {
+            checkConnection()
+            onConnected?.()
+            // Clean up URL
+            window.history.replaceState({}, "", window.location.pathname)
+        }
+    }, [checkConnection, onConnected])
 
     const handleConnect = () => {
         setIsConnecting(true)
