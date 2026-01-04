@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { prisma } from "@/lib/prisma"
 import { createMeetingBot, listBots } from "@/lib/api/meetingbaas"
 import type { CreateBotRequest } from "@/lib/data/types"
 
@@ -29,10 +30,43 @@ export async function POST(request: NextRequest) {
   }
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    // Check if we should force sync
+    const url = new URL(request.url)
+    const forceSync = url.searchParams.get("sync") === "true"
+
+    if (forceSync) {
+      const bots = await listBots()
+      // Here we could implement a bulk upsert logic if needed
+      // For now, let's just return the live data
+      return NextResponse.json({ bots })
+    }
+
+    // 1. Fetch from Database
+    const dbMeetings = await prisma.meeting.findMany({
+      orderBy: { createdAt: "desc" },
+      include: { summary: true } // Include summary for preview
+    })
+
+    if (dbMeetings.length > 0) {
+      const bots = dbMeetings.map(m => ({
+        bot_id: m.botId,
+        bot_name: m.botName,
+        status: m.status,
+        created_at: m.createdAt.toISOString(),
+        meeting_url: m.meetingUrl,
+        duration_seconds: m.durationSeconds,
+        summary: m.summary
+      }))
+      return NextResponse.json({ bots })
+    }
+
+    // 2. Fallback if DB empty: Fetch from API
+    console.log("No meetings in DB, fetching from API")
     const bots = await listBots()
     return NextResponse.json({ bots })
+
   } catch (error) {
     console.error("Error listing bots:", error)
     return NextResponse.json(

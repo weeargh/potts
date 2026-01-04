@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
-
+import { prisma } from "@/lib/prisma"
+import { getTranscript } from "@/lib/api/meetingbaas"
+import { generateSummary, extractActionItems } from "@/lib/api/claude"
 const CALLBACK_SECRET = process.env.MEETINGBAAS_CALLBACK_SECRET || ""
 
 /**
@@ -72,16 +74,105 @@ async function handleBotCompleted(data: {
 }) {
     console.log("Bot completed:", data.bot_id)
 
-    // The raw_transcription URL contains Gladia's summarization output
-    // You can fetch it here if needed for additional processing
-    if (data.raw_transcription) {
-        console.log("Raw transcription available (includes Gladia summary)")
-    }
+    try {
+        // 1. Update meeting status in DB
+        const meeting = await prisma.meeting.upsert({
+            where: { botId: data.bot_id },
+            update: {
+                status: "completed",
+                durationSeconds: data.duration_seconds,
+                videoUrl: data.mp4,
+                audioUrl: data.audio,
+                diarizationUrl: data.diarization, // Save diarization URL
+                transcriptUrl: data.raw_transcription, // Save raw transcript URL
+                completedAt: new Date(),
+            },
+            create: {
+                // Fallback creation if not exists (should rarely happen if created via API)
+                botId: data.bot_id,
+                userId: "00000000-0000-0000-0000-000000000000", // Placeholder if unknown
+                user: { connect: { email: "unknown@example.com" } }, // This might fail, ideally we find user ownership earlier
+                botName: "Unknown Meeting",
+                meetingUrl: "unknown",
+                status: "completed",
+            }
+        }).catch(err => {
+            console.error("Failed to upsert meeting:", err)
+            return null
+        })
 
-    // TODO: Implement your business logic here
-    // - Update database with meeting completion
-    // - Send notifications to users
-    // - Trigger downstream processing
+        if (!meeting) {
+            console.error("Could not find or create meeting for bot:", data.bot_id)
+            return
+        }
+
+        // 2. Fetch and save transcript if available
+        let utterances: any[] = []
+        if (data.transcription) {
+            console.log("Fetching transcript from:", data.transcription)
+            utterances = await getTranscript(data.transcription)
+
+            await prisma.transcript.upsert({
+                where: { meetingId: meeting.id },
+                update: { data: utterances as any },
+                create: {
+                    meetingId: meeting.id,
+                    data: utterances as any
+                }
+            })
+            console.log("Transcript saved to DB")
+        }
+
+        // 3. Generate and save summary/actions if we have transcript
+        if (utterances.length > 0) {
+            console.log("Generating summary and action items...")
+            const [summary, actionItems] = await Promise.all([
+                generateSummary(utterances),
+                extractActionItems(utterances)
+            ])
+
+            // Save Summary
+            await prisma.summary.upsert({
+                where: { meetingId: meeting.id },
+                update: {
+                    overview: summary.overview,
+                    keyPoints: summary.keyPoints,
+                    decisions: summary.decisions,
+                    nextSteps: summary.nextSteps,
+                },
+                create: {
+                    meetingId: meeting.id,
+                    overview: summary.overview,
+                    keyPoints: summary.keyPoints,
+                    decisions: summary.decisions,
+                    nextSteps: summary.nextSteps,
+                }
+            })
+
+            // Save Action Items
+            // Delete existing to avoid duplicates on retry
+            await prisma.actionItem.deleteMany({
+                where: { meetingId: meeting.id }
+            })
+
+            if (actionItems.length > 0) {
+                await prisma.actionItem.createMany({
+                    data: actionItems.map(item => ({
+                        meetingId: meeting.id,
+                        description: item.description,
+                        assignee: item.assignee,
+                        dueDate: item.dueDate,
+                        completed: item.completed
+                    }))
+                })
+            }
+            console.log("Summary and action items saved to DB")
+        }
+
+    } catch (error) {
+        console.error("Error processing bot completion:", error)
+        // Don't throw, we want to return 200 OK to the webhook
+    }
 }
 
 /**
