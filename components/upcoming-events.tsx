@@ -23,7 +23,7 @@ export function UpcomingEvents({ onRefresh }: UpcomingEventsProps) {
     async function loadEvents() {
         setLoading(true)
         try {
-            const response = await fetch("/api/calendar/events")
+            const response = await fetch("/api/calendar/events?refresh=true")
             const data = await response.json()
             setEvents(data.events || [])
 
