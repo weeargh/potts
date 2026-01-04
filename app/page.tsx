@@ -11,34 +11,28 @@ import { UpcomingEvents } from "@/components/upcoming-events"
 import Link from "next/link"
 import type { Meeting } from "@/lib/data/types"
 import { getDateGroup } from "@/lib/utils"
+import { useMeetings } from "@/lib/hooks/use-meetings"
 
 export default function Dashboard() {
   const [searchQuery, setSearchQuery] = useState("")
+  const [searchQuery, setSearchQuery] = useState("")
   const [selectedFilter, setSelectedFilter] = useState("all")
-  const [meetings, setMeetings] = useState<Meeting[]>([])
-  const [loading, setLoading] = useState(true)
+
+  const { meetings, isLoading: loading, mutate: reloadMeetings } = useMeetings()
+
   const [showUpcoming, setShowUpcoming] = useState(true)
   const [calendarConnected, setCalendarConnected] = useState(false)
   const [showOnlyCompleted, setShowOnlyCompleted] = useState(true)
   const [showAll, setShowAll] = useState(false)
 
-  async function loadMeetings() {
-    try {
-      const response = await fetch("/api/bots", { cache: "no-store" })
-      if (response.ok) {
-        const data = await response.json()
-        setMeetings(data.bots || [])
-      }
-    } catch (error) {
-      console.error("Failed to load meetings:", error)
-    } finally {
-      setLoading(false)
-    }
-  }
-
+  // Load calendar connection status
   useEffect(() => {
-    loadMeetings()
-  }, [])
+    // Check if calendar is connected via localStorage or API
+    // For now we'll just check if we have any meetings with calendar_id
+    if (meetings.length > 0) {
+      // Logic to set calendar connected state if needed
+    }
+  }, [meetings])
 
   // Filter by search query and status
   const filteredMeetings = meetings
@@ -112,7 +106,7 @@ export default function Dashboard() {
             {showUpcoming ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
             Upcoming Meetings
           </button>
-          {showUpcoming && <UpcomingEvents onRefresh={loadMeetings} />}
+          {showUpcoming && <UpcomingEvents onRefresh={reloadMeetings} />}
         </div>
       )}
 

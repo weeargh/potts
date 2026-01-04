@@ -6,40 +6,26 @@ import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { AppLayout } from "@/components/app-layout"
 import { formatDate } from "@/lib/utils"
-import type { Meeting, TranscriptUtterance } from "@/lib/data/types"
+import { useMeeting } from "@/lib/hooks/use-meetings"
 
 interface MeetingPageProps {
   params: Promise<{ id: string }>
 }
 
 export default function MeetingPage({ params }: MeetingPageProps) {
-  const [meeting, setMeeting] = useState<Meeting & { utterances?: TranscriptUtterance[] } | null>(null)
-  const [expandedTranscript, setExpandedTranscript] = useState(false)
-  const [aiQuestion, setAiQuestion] = useState("")
   const [id, setId] = useState<string>("")
 
+  // Unpack params
   useEffect(() => {
     params.then((p) => setId(p.id))
   }, [params])
 
-  useEffect(() => {
-    if (!id) return
+  const { meeting, isLoading } = useMeeting(id || null)
 
-    async function loadMeeting() {
-      try {
-        const response = await fetch(`/api/bots/${id}`, { cache: "no-store" })
-        if (response.ok) {
-          const data = await response.json()
-          setMeeting(data)
-        }
-      } catch (error) {
-        console.error("Failed to load meeting:", error)
-      }
-    }
-    loadMeeting()
-  }, [id])
+  const [expandedTranscript, setExpandedTranscript] = useState(false)
+  const [aiQuestion, setAiQuestion] = useState("")
 
-  if (!meeting) {
+  if (isLoading || !meeting) {
     return (
       <AppLayout>
         <div className="flex items-center justify-center h-full">
