@@ -107,6 +107,7 @@ async function handleBotCompleted(data: {
         }
 
         // 2. Fetch and save transcript if available
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         let utterances: any[] = []
         if (data.transcription) {
             console.log("Fetching transcript from:", data.transcription)
@@ -114,9 +115,11 @@ async function handleBotCompleted(data: {
 
             await prisma.transcript.upsert({
                 where: { meetingId: meeting.id },
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 update: { data: utterances as any },
                 create: {
                     meetingId: meeting.id,
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     data: utterances as any
                 }
             })

@@ -57,7 +57,9 @@ export async function GET(
             generateSummary(utterances),
             extractActionItems(utterances),
           ])
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           summary = result[0] as any
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           actionItems = result[1] as any // Type assertion for initial response
         }
 
@@ -83,7 +85,9 @@ export async function GET(
           // Save transcript
           await prisma.transcript.upsert({
             where: { meetingId: m.id },
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             update: { data: utterances as any },
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             create: { meetingId: m.id, data: utterances as any }
           })
 

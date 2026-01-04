@@ -161,3 +161,21 @@ model Participant {
   @@index([meetingId])
   @@map("participants")
 }
+
+// Cached calendar events
+model CalendarEvent {
+  id            String   @id @default(uuid()) @db.Uuid
+  eventId       String   @unique @map("event_id") // External ID from Provider
+  calendarId    String   @map("calendar_id")
+  title         String
+  startTime     DateTime @map("start_time")
+  endTime       DateTime @map("end_time")
+  meetingUrl    String?  @map("meeting_url")
+  platform      String?
+  botScheduled  Boolean  @default(false) @map("bot_scheduled")
+  rawData       Json     @map("raw_data")
+  lastFetchedAt DateTime @default(now()) @map("last_fetched_at")
+
+  @@index([calendarId])
+  @@map("calendar_events")
+}
