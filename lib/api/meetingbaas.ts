@@ -1,3 +1,14 @@
+/**
+ * MeetingBaas API v2 Client
+ * 
+ * Full implementation of MeetingBaas API endpoints with:
+ * - Rate limiting with exponential backoff
+ * - Input validation
+ * - Comprehensive error handling
+ * - Callback/webhook support
+ * - Gladia transcription with summarization
+ */
+
 import { createBaasClient } from "@meeting-baas/sdk"
 import type {
   CreateBotRequest,
@@ -5,35 +16,98 @@ import type {
   Meeting,
   TranscriptUtterance,
 } from "@/lib/data/types"
+import {
+  MEETINGBAAS_CONFIG,
+  apiGet,
+  apiPost,
+  apiDelete,
+  validateMeetingUrl,
+  validateBotId,
+  validateCalendarId,
+  validateTimestamp,
+  getCallbackConfig,
+  getTranscriptionConfig,
+  MeetingBaasError,
+} from "./meetingbaas-utils"
 
-const API_KEY = process.env.MEETINGBAAS_API_KEY || ""
-const API_BASE_URL = "https://api.meetingbaas.com/v2"
+// Re-export utilities for convenience
+export { MeetingBaasError, validateMeetingUrl, validateBotId }
 
+// SDK client for bot creation (uses official SDK)
 const client = createBaasClient({
-  api_key: API_KEY,
+  api_key: MEETINGBAAS_CONFIG.apiKey,
   api_version: "v2",
 })
 
+// ============================================
+// Bot Management Functions
+// ============================================
+
+/**
+ * Create an immediate bot that joins a meeting now
+ * @throws {MeetingBaasError} If validation fails or API returns error
+ */
 export async function createMeetingBot(
   config: CreateBotRequest
 ): Promise<CreateBotResponse> {
-  const response = await client.createBot({
-    bot_name: config.bot_name,
-    meeting_url: config.meeting_url,
+  // Validate meeting URL
+  const urlValidation = validateMeetingUrl(config.meeting_url)
+  if (!urlValidation.valid) {
+    throw new MeetingBaasError(urlValidation.error!, "INVALID_MEETING_URL", 400)
+  }
+
+  // Validate bot name
+  if (!config.bot_name || config.bot_name.trim().length === 0) {
+    throw new MeetingBaasError("Bot name is required", "VALIDATION_ERROR", 400)
+  }
+
+  // Build bot configuration
+  const botConfig: Record<string, unknown> = {
+    bot_name: config.bot_name.trim(),
+    meeting_url: config.meeting_url.trim(),
     recording_mode: config.recording_mode || "speaker_view",
-    transcription_enabled: true,
-    transcription_config: {
-      provider: "gladia",
-    },
-    // TODO: Configure bot to join 30 seconds early (check SDK documentation)
-  })
+    allow_multiple_bots: config.allow_multiple_bots ?? true,
+    ...getTranscriptionConfig(),
+  }
+
+  // Add optional entry message
+  if (config.entry_message) {
+    botConfig.entry_message = config.entry_message
+  }
+
+  // Add timeout config if provided
+  if (config.timeout_config) {
+    botConfig.timeout_config = {
+      ...(config.timeout_config.waiting_room_timeout && {
+        waiting_room_timeout: config.timeout_config.waiting_room_timeout
+      }),
+      ...(config.timeout_config.no_one_joined_timeout && {
+        no_one_joined_timeout: config.timeout_config.no_one_joined_timeout
+      }),
+      ...(config.timeout_config.silence_timeout && {
+        silence_timeout: config.timeout_config.silence_timeout
+      })
+    }
+  }
+
+  // Add callback config if configured
+  const callbackConfig = getCallbackConfig()
+  if (callbackConfig) {
+    Object.assign(botConfig, callbackConfig)
+  }
+
+  // Create bot via SDK
+  const response = await client.createBot(botConfig as any)
 
   if (!response.success) {
-    throw new Error(response.error || "Failed to create bot")
+    throw new MeetingBaasError(
+      response.error || "Failed to create bot",
+      "BOT_CREATION_FAILED",
+      500
+    )
   }
 
   const botId = response.data.bot_id
-
   const botStatus = await getBotStatus(botId)
 
   return {
@@ -43,20 +117,16 @@ export async function createMeetingBot(
   }
 }
 
-export async function getBotStatus(bot_id: string): Promise<Meeting> {
-  const response = await fetch(`${API_BASE_URL}/bots/${bot_id}`, {
-    headers: {
-      "x-meeting-baas-api-key": API_KEY,
-    },
-    cache: "no-store",
-  })
-
-  if (!response.ok) {
-    throw new Error(`Failed to fetch bot status: ${response.statusText}`)
+/**
+ * Get bot status and details by ID
+ * @throws {MeetingBaasError} If bot ID is invalid or not found
+ */
+export async function getBotStatus(botId: string): Promise<Meeting> {
+  if (!validateBotId(botId)) {
+    throw new MeetingBaasError("Invalid bot ID format", "VALIDATION_ERROR", 400)
   }
 
-  const data = await response.json()
-  return data.data
+  return apiGet<Meeting>(`/bots/${botId}`)
 }
 
 export async function getTranscript(
@@ -88,20 +158,142 @@ export async function getTranscript(
   return []
 }
 
+/**
+ * List all bots for this account
+ */
 export async function listBots(): Promise<Meeting[]> {
-  const response = await fetch(`${API_BASE_URL}/bots`, {
-    headers: {
-      "x-meeting-baas-api-key": API_KEY,
-    },
-    cache: "no-store",
-  })
+  return apiGet<Meeting[]>("/bots")
+}
 
-  if (!response.ok) {
-    throw new Error(`Failed to list bots: ${response.statusText}`)
+/**
+ * Leave a meeting - instructs the bot to stop recording and exit
+ * Can only be called when bot status is: joining_call, in_waiting_room,
+ * in_call_not_recording, in_call_recording, recording_paused, recording_resumed
+ */
+export async function leaveMeeting(botId: string): Promise<{ message: string }> {
+  if (!validateBotId(botId)) {
+    throw new MeetingBaasError("Invalid bot ID format", "VALIDATION_ERROR", 400)
   }
 
-  const data = await response.json()
-  return data.data || []
+  return apiPost<{ message: string }>(`/bots/${botId}/leave`)
+}
+
+/**
+ * Delete bot data permanently - removes recordings, transcriptions, screenshots
+ * Can only be called when bot status is: completed or failed
+ */
+export async function deleteBotData(botId: string): Promise<{ deleted: boolean }> {
+  if (!validateBotId(botId)) {
+    throw new MeetingBaasError("Invalid bot ID format", "VALIDATION_ERROR", 400)
+  }
+
+  await apiDelete(`/bots/${botId}/delete-data`)
+  return { deleted: true }
+}
+
+/**
+ * Create a scheduled bot that joins at a specific time
+ * @throws {MeetingBaasError} If validation fails or API returns error
+ */
+export async function createScheduledBot(config: {
+  meeting_url: string
+  bot_name: string
+  join_at: string  // ISO 8601 timestamp
+  recording_mode?: "speaker_view" | "gallery_view" | "audio_only"
+  allow_multiple_bots?: boolean
+}): Promise<{ bot_id: string }> {
+  // Validate inputs
+  const urlValidation = validateMeetingUrl(config.meeting_url)
+  if (!urlValidation.valid) {
+    throw new MeetingBaasError(urlValidation.error!, "INVALID_MEETING_URL", 400)
+  }
+  if (!validateTimestamp(config.join_at)) {
+    throw new MeetingBaasError("Invalid join_at timestamp", "VALIDATION_ERROR", 400)
+  }
+
+  const body = {
+    meeting_url: config.meeting_url.trim(),
+    bot_name: config.bot_name.trim(),
+    join_at: config.join_at,
+    recording_mode: config.recording_mode || "speaker_view",
+    allow_multiple_bots: config.allow_multiple_bots ?? true,
+    ...getTranscriptionConfig(),
+    ...getCallbackConfig(),
+  }
+
+  return apiPost<{ bot_id: string }>("/bots/scheduled", body)
+}
+
+/**
+ * Cancel a scheduled bot before it joins the meeting
+ */
+export async function cancelScheduledBot(botId: string): Promise<{ cancelled: boolean }> {
+  if (!validateBotId(botId)) {
+    throw new MeetingBaasError("Invalid bot ID format", "VALIDATION_ERROR", 400)
+  }
+
+  await apiDelete(`/bots/scheduled/${botId}`)
+  return { cancelled: true }
+}
+
+/**
+ * Retry transcription for a bot that failed transcription
+ */
+export async function retryTranscription(botId: string): Promise<{ success: boolean }> {
+  if (!validateBotId(botId)) {
+    throw new MeetingBaasError("Invalid bot ID format", "VALIDATION_ERROR", 400)
+  }
+
+  await apiPost(`/bots/${botId}/re-transcribe`)
+  return { success: true }
+}
+
+// ============================================
+// Error Codes - User-friendly messages
+// ============================================
+
+export const BOT_ERROR_MESSAGES: Record<string, { title: string; message: string; canRetry?: boolean }> = {
+  // Normal end reasons
+  BOT_REMOVED: { title: "Bot Removed", message: "The bot was removed from the meeting." },
+  NO_ATTENDEES: { title: "No Attendees", message: "No one joined the meeting." },
+  NO_SPEAKER: { title: "No Speaker", message: "No audio was detected during the recording." },
+  RECORDING_TIMEOUT: { title: "Recording Timeout", message: "Recording timeout was reached." },
+  API_REQUEST: { title: "Stopped by Request", message: "Recording was stopped via API request." },
+
+  // Error end reasons
+  BOT_NOT_ACCEPTED: { title: "Bot Not Accepted", message: "The meeting participants didn't admit the bot. Make sure to admit the bot when it appears." },
+  TIMEOUT_WAITING_TO_START: { title: "Meeting Didn't Start", message: "No one joined the meeting within the timeout period." },
+  CANNOT_JOIN_MEETING: { title: "Cannot Join Meeting", message: "The meeting is not reachable or may no longer exist." },
+  BOT_REMOVED_TOO_EARLY: { title: "Recording Too Short", message: "The bot was removed before enough content was recorded." },
+  INVALID_MEETING_URL: { title: "Invalid Meeting URL", message: "The meeting URL provided is not valid." },
+  LOGIN_REQUIRED: { title: "Login Required", message: "The meeting requires login to access." },
+  INTERNAL_ERROR: { title: "Internal Error", message: "An internal error occurred. Please try again." },
+
+  // Transcription errors
+  TRANSCRIPTION_FAILED: { title: "Transcription Failed", message: "The transcription process failed. You can retry.", canRetry: true },
+
+  // System errors
+  INSUFFICIENT_TOKENS: { title: "Insufficient Tokens", message: "Not enough tokens available. Please check your account balance." },
+  DAILY_BOT_CAP_REACHED: { title: "Daily Limit Reached", message: "You've reached the daily bot creation limit." },
+  BOT_ALREADY_EXISTS: { title: "Bot Already Exists", message: "A bot is already recording this meeting." },
+
+  // Zoom-specific errors
+  WAITING_FOR_HOST_TIMEOUT: { title: "Host Didn't Join", message: "The meeting host didn't join within the timeout period." },
+  RECORDING_RIGHTS_NOT_GRANTED: { title: "Recording Permission Denied", message: "The host didn't grant recording permission to the bot." },
+
+  // Unknown
+  UNKNOWN_ERROR: { title: "Unknown Error", message: "An unexpected error occurred. Please contact support if this persists." },
+}
+
+/**
+ * Get user-friendly error message for a bot error code
+ */
+export function getBotErrorMessage(errorCode: string | undefined): { title: string; message: string; canRetry?: boolean } {
+  const fallback = { title: "Unknown Error", message: "An unexpected error occurred. Please contact support if this persists." }
+  if (!errorCode) {
+    return fallback
+  }
+  return BOT_ERROR_MESSAGES[errorCode] ?? fallback
 }
 
 // ============================================
@@ -109,10 +301,12 @@ export async function listBots(): Promise<Meeting[]> {
 // ============================================
 
 export interface CalendarConnection {
-  uuid: string
-  email: string
-  name: string
-  google_id: string
+  calendar_id: string
+  calendar_platform: string
+  account_email: string
+  status: string
+  synced_at: string
+  created_at: string
 }
 
 export interface CalendarEvent {
@@ -122,13 +316,13 @@ export interface CalendarEvent {
   title: string
   start_time: string
   end_time: string
-  meeting_url: string | null
-  attendees: { email: string; name?: string | null }[]
-  organizer: { email: string; name?: string | null }
-  calendar_id: string
   status: string
+  is_exception?: boolean
+  meeting_url: string | null
+  meeting_platform?: "zoom" | "google_meet" | "teams" | null
+  calendar_id: string
+  bot_scheduled?: boolean
   created_at: string
-  bot_id?: string | null
 }
 
 // List raw calendars from OAuth credentials (needed to get raw_calendar_id)
@@ -138,35 +332,29 @@ export interface RawCalendar {
   email?: string
 }
 
+/**
+ * List raw calendars from OAuth credentials (needed to get raw_calendar_id)
+ */
 export async function listRawCalendars(params: {
   oauthClientId: string
   oauthClientSecret: string
   oauthRefreshToken: string
   platform: "google" | "microsoft"
 }): Promise<RawCalendar[]> {
-  const response = await fetch(`${API_BASE_URL}/calendars/list-raw`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-meeting-baas-api-key": API_KEY,
-    },
-    body: JSON.stringify({
-      calendar_platform: params.platform,
-      oauth_client_id: params.oauthClientId,
-      oauth_client_secret: params.oauthClientSecret,
-      oauth_refresh_token: params.oauthRefreshToken,
-    }),
+  const result = await apiPost<RawCalendar[] | { calendars: RawCalendar[] }>("/calendars/list-raw", {
+    calendar_platform: params.platform,
+    oauth_client_id: params.oauthClientId,
+    oauth_client_secret: params.oauthClientSecret,
+    oauth_refresh_token: params.oauthRefreshToken,
   })
 
-  if (!response.ok) {
-    const error = await response.text()
-    throw new Error(`Failed to list raw calendars: ${error}`)
-  }
-
-  const data = await response.json()
-  return data.data || data.calendars || []
+  // Handle different response formats
+  return Array.isArray(result) ? result : (result as { calendars: RawCalendar[] })?.calendars || []
 }
 
+/**
+ * Create a calendar connection in MeetingBaas
+ */
 export async function createCalendarConnection(params: {
   oauthClientId: string
   oauthClientSecret: string
@@ -187,7 +375,7 @@ export async function createCalendarConnection(params: {
     })
 
     if (rawCalendars.length === 0) {
-      throw new Error("No calendars found for this account")
+      throw new MeetingBaasError("No calendars found for this account", "NO_CALENDARS_FOUND", 404)
     }
 
     // Use the first (primary) calendar
@@ -195,50 +383,29 @@ export async function createCalendarConnection(params: {
     rawCalendarId = primaryCalendar.id
     console.log("Using raw calendar:", rawCalendarId, primaryCalendar.name)
 
-    // Wait 1.5 seconds to avoid MeetingBaas rate limit (1 req/sec)
+    // Wait 1.5 seconds to respect MeetingBaas rate limit (1 req/sec)
     await new Promise(resolve => setTimeout(resolve, 1500))
   }
 
-  const response = await fetch(`${API_BASE_URL}/calendars`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-meeting-baas-api-key": API_KEY,
-    },
-    body: JSON.stringify({
-      calendar_platform: params.platform,
-      oauth_client_id: params.oauthClientId,
-      oauth_client_secret: params.oauthClientSecret,
-      oauth_refresh_token: params.oauthRefreshToken,
-      raw_calendar_id: rawCalendarId,
-    }),
+  return apiPost<CalendarConnection>("/calendars", {
+    calendar_platform: params.platform,
+    oauth_client_id: params.oauthClientId,
+    oauth_client_secret: params.oauthClientSecret,
+    oauth_refresh_token: params.oauthRefreshToken,
+    raw_calendar_id: rawCalendarId,
   })
-
-  if (!response.ok) {
-    const error = await response.text()
-    throw new Error(`Failed to create calendar connection: ${error}`)
-  }
-
-  const data = await response.json()
-  return data.data || data.calendar
 }
 
+/**
+ * List all connected calendars
+ */
 export async function listCalendars(): Promise<CalendarConnection[]> {
-  const response = await fetch(`${API_BASE_URL}/calendars`, {
-    headers: {
-      "x-meeting-baas-api-key": API_KEY,
-    },
-    cache: "no-store",
-  })
-
-  if (!response.ok) {
-    throw new Error(`Failed to list calendars: ${response.statusText}`)
-  }
-
-  const data = await response.json()
-  return data.data || data || []
+  return apiGet<CalendarConnection[]>("/calendars")
 }
 
+/**
+ * List events from a connected calendar
+ */
 export async function listCalendarEvents(
   calendarId: string,
   options?: {
@@ -247,28 +414,33 @@ export async function listCalendarEvents(
     limit?: number
   }
 ): Promise<CalendarEvent[]> {
-  const params = new URLSearchParams()
-  if (options?.startDate) params.append("start_date", options.startDate)
-  if (options?.endDate) params.append("end_date", options.endDate)
-  if (options?.limit) params.append("limit", options.limit.toString())
-
-  const url = `${API_BASE_URL}/calendars/${calendarId}/events${params.toString() ? `?${params}` : ""}`
-
-  const response = await fetch(url, {
-    headers: {
-      "x-meeting-baas-api-key": API_KEY,
-    },
-    cache: "no-store",
-  })
-
-  if (!response.ok) {
-    throw new Error(`Failed to list calendar events: ${response.statusText}`)
+  if (!validateCalendarId(calendarId)) {
+    throw new MeetingBaasError("Invalid calendar ID format", "VALIDATION_ERROR", 400)
   }
 
-  const data = await response.json()
-  return data.data || []
+  const params = new URLSearchParams()
+  // API expects full ISO datetime, not just date
+  if (options?.startDate) {
+    const startDateTime = options.startDate.includes('T')
+      ? options.startDate
+      : `${options.startDate}T00:00:00Z`
+    params.append("start_date", startDateTime)
+  }
+  if (options?.endDate) {
+    const endDateTime = options.endDate.includes('T')
+      ? options.endDate
+      : `${options.endDate}T23:59:59Z`
+    params.append("end_date", endDateTime)
+  }
+  if (options?.limit) params.append("limit", options.limit.toString())
+
+  const queryString = params.toString()
+  return apiGet<CalendarEvent[]>(`/calendars/${calendarId}/events${queryString ? `?${queryString}` : ""}`)
 }
 
+/**
+ * Schedule a bot for a calendar event
+ */
 export async function scheduleCalendarBot(
   calendarId: string,
   eventId: string,
@@ -276,45 +448,60 @@ export async function scheduleCalendarBot(
     botName?: string
     botImage?: string
     recordingMode?: "speaker_view" | "gallery_view" | "audio_only"
+    allOccurrences?: boolean
+    seriesId?: string
+    timeoutConfig?: {
+      waitingRoomTimeout?: number
+      noOneJoinedTimeout?: number
+    }
   }
 ): Promise<{ bot_id: string }> {
-  const response = await fetch(`${API_BASE_URL}/calendars/${calendarId}/bots`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-meeting-baas-api-key": API_KEY,
-    },
-    body: JSON.stringify({
-      event_id: eventId,
-      bot_name: botConfig?.botName || "Potts Recorder",
-      ...(botConfig?.botImage && { bot_image: botConfig.botImage }),
-      recording_mode: botConfig?.recordingMode || "speaker_view",
-      transcription_enabled: true,
-      transcription_config: {
-        provider: "gladia",
-      },
-    }),
-  })
-
-  if (!response.ok) {
-    const error = await response.text()
-    throw new Error(`Failed to schedule calendar bot: ${error}`)
+  if (!validateCalendarId(calendarId)) {
+    throw new MeetingBaasError("Invalid calendar ID format", "VALIDATION_ERROR", 400)
   }
 
-  const data = await response.json()
-  return data.data || data
+  const body: Record<string, unknown> = {
+    // Either use event_id or series_id
+    ...(botConfig?.seriesId
+      ? { series_id: botConfig.seriesId }
+      : { event_id: eventId }
+    ),
+    all_occurrences: botConfig?.allOccurrences || false,
+    bot_name: botConfig?.botName || "Potts Recorder",
+    ...(botConfig?.botImage && { bot_image: botConfig.botImage }),
+    recording_mode: botConfig?.recordingMode || "speaker_view",
+    ...getTranscriptionConfig(),
+  }
+
+  // Add timeout config if provided
+  if (botConfig?.timeoutConfig) {
+    body.timeout_config = {
+      ...(botConfig.timeoutConfig.waitingRoomTimeout && {
+        waiting_room_timeout: botConfig.timeoutConfig.waitingRoomTimeout
+      }),
+      ...(botConfig.timeoutConfig.noOneJoinedTimeout && {
+        no_one_joined_timeout: botConfig.timeoutConfig.noOneJoinedTimeout
+      })
+    }
+  }
+
+  // Add callback config
+  const callbackConfig = getCallbackConfig()
+  if (callbackConfig) {
+    Object.assign(body, callbackConfig)
+  }
+
+  return apiPost<{ bot_id: string }>(`/calendars/${calendarId}/bots`, body)
 }
 
+/**
+ * Delete a calendar connection
+ */
 export async function deleteCalendar(calendarId: string): Promise<void> {
-  const response = await fetch(`${API_BASE_URL}/calendars/${calendarId}`, {
-    method: "DELETE",
-    headers: {
-      "x-meeting-baas-api-key": API_KEY,
-    },
-  })
-
-  if (!response.ok) {
-    throw new Error(`Failed to delete calendar: ${response.statusText}`)
+  if (!validateCalendarId(calendarId)) {
+    throw new MeetingBaasError("Invalid calendar ID format", "VALIDATION_ERROR", 400)
   }
+
+  await apiDelete(`/calendars/${calendarId}`)
 }
 

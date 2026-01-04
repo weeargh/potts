@@ -1,3 +1,23 @@
+// ============================================================================
+// POTTS PRISMA SCHEMA
+// ============================================================================
+//
+// Database: PostgreSQL (Supabase)
+// Documentation: docs/DATABASE_SCHEMA.md
+//
+// API Compliance:
+//   - MeetingBaas API v2: https://doc.meetingbaas.com
+//   - Supabase Auth: auth.uid() for RLS
+//   - Google Calendar: OAuth token storage
+//   - Vercel: directUrl for serverless
+//
+// Bot Status Codes (MeetingBaas v2):
+//   queued | joining_call | in_waiting_room | in_call_not_recording |
+//   in_call_recording | recording_paused | recording_resumed |
+//   transcribing | completed | failed
+//
+// ============================================================================
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -5,7 +25,7 @@ generator client {
 datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  directUrl = env("DIRECT_URL") // For Vercel serverless
 }
 
 // Users are managed by Supabase Auth
@@ -26,21 +46,23 @@ model User {
 
 // Calendar accounts (Google Calendar OAuth tokens)
 model CalendarAccount {
-  id           String   @id @default(uuid()) @db.Uuid
-  userId       String   @map("user_id") @db.Uuid
-  provider     String   @default("google") // google, outlook, etc
-  email        String
-  accessToken  String   @map("access_token") // Encrypted
-  refreshToken String?  @map("refresh_token") // Encrypted
-  expiresAt    DateTime @map("expires_at")
-  scope        String // OAuth scopes granted
-  isActive     Boolean  @default(true) @map("is_active")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  id                   String   @id @default(uuid()) @db.Uuid
+  userId               String   @map("user_id") @db.Uuid
+  provider             String   @default("google") // google, outlook, etc
+  email                String
+  accessToken          String   @map("access_token") // Encrypted
+  refreshToken         String?  @map("refresh_token") // Encrypted
+  expiresAt            DateTime @map("expires_at")
+  scope                String // OAuth scopes granted
+  meetingbaasCalendarId String? @map("meetingbaas_calendar_id") // MeetingBaas calendar reference
+  isActive             Boolean  @default(true) @map("is_active")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, provider, email])
+  @@index([meetingbaasCalendarId])
   @@map("calendar_accounts")
 }
 
@@ -52,12 +74,17 @@ model Meeting {
   botName          String   @map("bot_name")
   meetingUrl       String   @map("meeting_url")
   calendarEventId  String?  @map("calendar_event_id") // If created from calendar
-  status           String // queued, waiting, recording, completed, failed
+  status           String // queued, joining_call, in_waiting_room, etc.
+  recordingMode    String   @default("speaker_view") @map("recording_mode") // speaker_view, gallery_view, audio_only
   durationSeconds  Int?     @map("duration_seconds")
   participantCount Int?     @map("participant_count")
   videoUrl         String?  @map("video_url")
   audioUrl         String?  @map("audio_url")
   transcriptUrl    String?  @map("transcript_url")
+  diarizationUrl   String?  @map("diarization_url") // Speaker diarization data
+  errorCode        String?  @map("error_code") // MeetingBaas error code
+  errorMessage     String?  @map("error_message") // Human-readable error
+  endReason        String?  @map("end_reason") // NO_ATTENDEES, BOT_REMOVED, etc.
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
   completedAt      DateTime? @map("completed_at")
@@ -70,6 +97,8 @@ model Meeting {
 
   @@index([userId, createdAt])
   @@index([status])
+  @@index([calendarEventId])
+  @@index([status, createdAt(sort: Desc)])
   @@map("meetings")
 }
 

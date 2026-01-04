@@ -19,6 +19,8 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [showUpcoming, setShowUpcoming] = useState(true)
   const [calendarConnected, setCalendarConnected] = useState(false)
+  const [showOnlyCompleted, setShowOnlyCompleted] = useState(true)
+  const [showAll, setShowAll] = useState(false)
 
   async function loadMeetings() {
     try {
@@ -38,15 +40,27 @@ export default function Dashboard() {
     loadMeetings()
   }, [])
 
+  // Filter by search query and status
   const filteredMeetings = meetings
     .filter((meeting) =>
       meeting.bot_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       meeting.summary?.overview?.toLowerCase().includes(searchQuery.toLowerCase())
     )
+    .filter((meeting) => {
+      // When showOnlyCompleted is true, only show completed meetings
+      // When showOnlyCompleted is false (show all clicked), show completed and failed
+      if (showOnlyCompleted) {
+        return meeting.status === "completed"
+      }
+      return true // Show all statuses including failed, queued, etc.
+    })
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
 
+  // Limit to 5 meetings unless showAll is true
+  const displayedMeetings = showAll ? filteredMeetings : filteredMeetings.slice(0, 5)
+
   // Group meetings by date
-  const groupedMeetings = filteredMeetings.reduce((groups, meeting) => {
+  const groupedMeetings = displayedMeetings.reduce((groups, meeting) => {
     const group = getDateGroup(meeting.created_at)
     if (!groups[group]) {
       groups[group] = []
@@ -121,13 +135,48 @@ export default function Dashboard() {
                 key={filter}
                 onClick={() => setSelectedFilter(filter)}
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${selectedFilter === filter
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted text-foreground hover:bg-border"
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted text-foreground hover:bg-border"
                   }`}
               >
                 {filter.charAt(0).toUpperCase() + filter.slice(1)}
               </button>
             ))}
+          </div>
+
+          {/* Status Toggle and Show All */}
+          <div className="flex items-center gap-4">
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showOnlyCompleted}
+                onChange={(e) => setShowOnlyCompleted(e.target.checked)}
+                className="w-4 h-4 rounded border-border"
+              />
+              <span className="text-muted-foreground">Only Completed</span>
+            </label>
+            {!showAll && filteredMeetings.length > 5 && (
+              <button
+                onClick={() => {
+                  setShowAll(true)
+                  setShowOnlyCompleted(false)
+                }}
+                className="text-sm text-primary hover:underline"
+              >
+                Show All ({filteredMeetings.length})
+              </button>
+            )}
+            {showAll && (
+              <button
+                onClick={() => {
+                  setShowAll(false)
+                  setShowOnlyCompleted(true)
+                }}
+                className="text-sm text-muted-foreground hover:text-foreground"
+              >
+                Show Less
+              </button>
+            )}
           </div>
         </div>
       </div>

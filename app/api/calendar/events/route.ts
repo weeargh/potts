@@ -36,14 +36,14 @@ export async function GET(request: NextRequest) {
             const allEvents = await Promise.all(
                 calendars.map(async (cal) => {
                     try {
-                        const events = await listCalendarEvents(cal.uuid, {
+                        const events = await listCalendarEvents(cal.calendar_id, {
                             startDate: startDate || new Date().toISOString().split("T")[0],
                             endDate: endDate || undefined,
                             limit: 50,
                         })
                         return events
                     } catch (err) {
-                        console.error(`Failed to fetch events for calendar ${cal.uuid}:`, err)
+                        console.error(`Failed to fetch events for calendar ${cal.calendar_id}:`, err)
                         return []
                     }
                 })

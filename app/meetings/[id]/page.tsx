@@ -24,7 +24,7 @@ export default function MeetingPage({ params }: MeetingPageProps) {
 
   useEffect(() => {
     if (!id) return
-    
+
     async function loadMeeting() {
       try {
         const response = await fetch(`/api/bots/${id}`, { cache: "no-store" })
@@ -210,7 +210,7 @@ export default function MeetingPage({ params }: MeetingPageProps) {
                       const speaker = typeof entry.speaker === "number" ? `Speaker ${entry.speaker}` : entry.speaker
                       const text = entry.text || entry.words?.map(w => w.text).join(" ") || ""
                       const timestamp = entry.start ? `${Math.floor(entry.start / 60)}:${String(Math.floor(entry.start % 60)).padStart(2, "0")}` : ""
-                      
+
                       return (
                         <div key={idx} className="space-y-1">
                           <div className="flex items-center gap-2">
@@ -223,7 +223,7 @@ export default function MeetingPage({ params }: MeetingPageProps) {
                     })
                   ) : (
                     <p className="text-sm text-muted-foreground">
-                      {meeting.status === "in_meeting" ? "Recording in progress..." : "Processing transcript..."}
+                      {meeting.status === "in_call_recording" ? "Recording in progress..." : "Processing transcript..."}
                     </p>
                   )}
                 </div>
@@ -236,32 +236,32 @@ export default function MeetingPage({ params }: MeetingPageProps) {
         <div className="w-96 border-l border-border bg-background flex flex-col p-8">
           <div className="bg-card border border-border rounded-lg overflow-hidden">
             <div className="aspect-video bg-black/90 relative group">
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="text-center">
-                <div className="w-16 h-16 bg-primary rounded-full flex items-center justify-center mx-auto mb-3 cursor-pointer hover:bg-primary/90 transition-colors">
-                  <Play className="w-6 h-6 text-primary-foreground fill-current ml-1" />
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="text-center">
+                  <div className="w-16 h-16 bg-primary rounded-full flex items-center justify-center mx-auto mb-3 cursor-pointer hover:bg-primary/90 transition-colors">
+                    <Play className="w-6 h-6 text-primary-foreground fill-current ml-1" />
+                  </div>
+                  <p className="text-xs text-muted-foreground">Video Recording</p>
                 </div>
-                <p className="text-xs text-muted-foreground">Video Recording</p>
               </div>
-            </div>
             </div>
 
             {/* Video Info */}
             <div className="p-6 border-t border-border space-y-3">
-            <div>
-              <p className="text-xs font-medium text-muted-foreground uppercase mb-1">Duration</p>
-              <p className="text-sm font-semibold text-foreground">
-                {meeting.duration_seconds ? `${Math.floor(meeting.duration_seconds / 60)}m ${meeting.duration_seconds % 60}s` : "In progress"}
-              </p>
-            </div>
-            {meeting.video && (
-              <a href={meeting.video} target="_blank" rel="noopener noreferrer">
-                <Button variant="outline" size="sm" className="w-full gap-2">
-                  <BookOpen className="w-4 h-4" />
-                  View Recording
-                </Button>
-              </a>
-            )}
+              <div>
+                <p className="text-xs font-medium text-muted-foreground uppercase mb-1">Duration</p>
+                <p className="text-sm font-semibold text-foreground">
+                  {meeting.duration_seconds ? `${Math.floor(meeting.duration_seconds / 60)}m ${meeting.duration_seconds % 60}s` : "In progress"}
+                </p>
+              </div>
+              {meeting.video && (
+                <a href={meeting.video} target="_blank" rel="noopener noreferrer">
+                  <Button variant="outline" size="sm" className="w-full gap-2">
+                    <BookOpen className="w-4 h-4" />
+                    View Recording
+                  </Button>
+                </a>
+              )}
             </div>
           </div>
         </div>

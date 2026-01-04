@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Calendar, Video, Loader2, Clock, Users } from "lucide-react"
+import { Calendar, Video, Loader2, Clock } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import type { CalendarEvent } from "@/lib/api/meetingbaas"
@@ -27,10 +27,10 @@ export function UpcomingEvents({ onRefresh }: UpcomingEventsProps) {
             const data = await response.json()
             setEvents(data.events || [])
 
-            // Mark events that already have bots scheduled
+            // Mark events that already have bots scheduled (using bot_scheduled from API)
             const scheduled = new Set<string>()
             data.events?.forEach((event: CalendarEvent) => {
-                if (event.bot_id) {
+                if (event.bot_scheduled) {
                     scheduled.add(event.event_id)
                 }
             })
@@ -118,7 +118,7 @@ export function UpcomingEvents({ onRefresh }: UpcomingEventsProps) {
 
     return (
         <div className="space-y-3">
-            {events.slice(0, 5).map((event) => {
+            {events.slice(0, 3).map((event) => {
                 const isScheduled = scheduledEvents.has(event.event_id)
                 const isScheduling = schedulingEventId === event.event_id
 
@@ -140,12 +140,6 @@ export function UpcomingEvents({ onRefresh }: UpcomingEventsProps) {
                                     <Clock className="w-3.5 h-3.5" />
                                     {formatDate(event.start_time)} at {formatTime(event.start_time)}
                                 </span>
-                                {event.attendees.length > 0 && (
-                                    <span className="flex items-center gap-1">
-                                        <Users className="w-3.5 h-3.5" />
-                                        {event.attendees.length} attendee{event.attendees.length !== 1 ? "s" : ""}
-                                    </span>
-                                )}
                             </div>
                         </div>
 
@@ -167,9 +161,9 @@ export function UpcomingEvents({ onRefresh }: UpcomingEventsProps) {
                 )
             })}
 
-            {events.length > 5 && (
+            {events.length > 3 && (
                 <p className="text-sm text-muted-foreground text-center">
-                    +{events.length - 5} more meetings
+                    +{events.length - 3} more meetings
                 </p>
             )}
         </div>

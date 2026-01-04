@@ -1,5 +1,29 @@
--- Mekari Callnote Database Schema
--- Run this in Supabase SQL Editor: https://supabase.com/dashboard → SQL Editor
+-- ============================================================================
+-- POTTS DATABASE SCHEMA
+-- ============================================================================
+-- 
+-- Database: PostgreSQL (Supabase)
+-- Last Updated: 2026-01-04
+-- Documentation: docs/DATABASE_SCHEMA.md
+--
+-- API COMPLIANCE:
+--   ✓ MeetingBaas API v2: https://doc.meetingbaas.com
+--   ✓ Supabase Auth: https://supabase.com/docs/guides/auth
+--   ✓ Google Calendar API: https://developers.google.com/calendar/api
+--   ✓ Vercel (Serverless): Connection pooling via directUrl
+--
+-- BOT STATUS CODES (MeetingBaas v2):
+--   queued, joining_call, in_waiting_room, in_call_not_recording,
+--   in_call_recording, recording_paused, recording_resumed,
+--   transcribing, completed, failed
+--
+-- ERROR CODES (MeetingBaas):
+--   BOT_NOT_ACCEPTED, TIMEOUT_WAITING_TO_START, CANNOT_JOIN_MEETING,
+--   INVALID_MEETING_URL, TRANSCRIPTION_FAILED, INSUFFICIENT_TOKENS,
+--   DAILY_BOT_CAP_REACHED, BOT_ALREADY_EXISTS
+--
+-- Run in Supabase SQL Editor: https://supabase.com/dashboard → SQL Editor
+-- ============================================================================
 
 -- Users table (additional data, auth handled by Supabase Auth)
 CREATE TABLE IF NOT EXISTS users (
@@ -21,11 +45,14 @@ CREATE TABLE IF NOT EXISTS calendar_accounts (
   refresh_token TEXT,          -- Store encrypted
   expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
   scope TEXT NOT NULL,
+  meetingbaas_calendar_id TEXT,  -- MeetingBaas calendar reference
   is_active BOOLEAN DEFAULT true,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   UNIQUE(user_id, provider, email)
 );
+
+CREATE INDEX IF NOT EXISTS idx_calendar_accounts_mb_id ON calendar_accounts(meetingbaas_calendar_id) WHERE meetingbaas_calendar_id IS NOT NULL;
 
 -- Meetings / Bots
 CREATE TABLE IF NOT EXISTS meetings (
@@ -35,12 +62,17 @@ CREATE TABLE IF NOT EXISTS meetings (
   bot_name TEXT NOT NULL,
   meeting_url TEXT NOT NULL,
   calendar_event_id TEXT,  -- If created from calendar
-  status TEXT NOT NULL,  -- queued, waiting, recording, completed, failed
+  status TEXT NOT NULL,  -- queued, joining_call, in_waiting_room, etc.
+  recording_mode TEXT DEFAULT 'speaker_view',  -- speaker_view, gallery_view, audio_only
   duration_seconds INTEGER,
   participant_count INTEGER,
   video_url TEXT,
   audio_url TEXT,
   transcript_url TEXT,
+  diarization_url TEXT,  -- Speaker diarization data
+  error_code TEXT,  -- MeetingBaas error code
+  error_message TEXT,  -- Human-readable error message
+  end_reason TEXT,  -- NO_ATTENDEES, BOT_REMOVED, etc.
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   completed_at TIMESTAMP WITH TIME ZONE
@@ -48,6 +80,8 @@ CREATE TABLE IF NOT EXISTS meetings (
 
 CREATE INDEX IF NOT EXISTS idx_meetings_user_created ON meetings(user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_meetings_status ON meetings(status);
+CREATE INDEX IF NOT EXISTS idx_meetings_calendar_event ON meetings(calendar_event_id) WHERE calendar_event_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_meetings_status_created ON meetings(status, created_at DESC);
 
 -- Transcripts
 CREATE TABLE IF NOT EXISTS transcripts (

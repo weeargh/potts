@@ -56,14 +56,14 @@ export async function GET(request: NextRequest) {
         const { data: { user } } = await supabase.auth.getUser()
         console.log("Supabase user:", user?.id)
 
-        if (user && calendar.email) {
+        if (user && calendar.account_email) {
             // Store calendar connection in Supabase
             const expiresAt = new Date(Date.now() + tokens.expires_in * 1000)
 
             const { error: dbError } = await supabase.from("calendar_accounts").upsert({
                 user_id: user.id,
                 provider: "google",
-                email: calendar.email,
+                email: calendar.account_email,
                 access_token: tokens.access_token,
                 refresh_token: tokens.refresh_token,
                 expires_at: expiresAt.toISOString(),
