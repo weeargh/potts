@@ -10,7 +10,7 @@
  * Run with: npx vitest run lib/api/__tests__/
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import {
     validateMeetingUrl,
     validateBotId,
@@ -92,8 +92,8 @@ describe('validateMeetingUrl', () => {
         })
 
         it('should reject null/undefined', () => {
-            expect(validateMeetingUrl(null as any).valid).toBe(false)
-            expect(validateMeetingUrl(undefined as any).valid).toBe(false)
+            expect(validateMeetingUrl(null as unknown as string).valid).toBe(false)
+            expect(validateMeetingUrl(undefined as unknown as string).valid).toBe(false)
         })
 
         it('should reject random URLs', () => {
@@ -129,12 +129,12 @@ describe('validateBotId', () => {
         })
 
         it('should reject null/undefined', () => {
-            expect(validateBotId(null as any)).toBe(false)
-            expect(validateBotId(undefined as any)).toBe(false)
+            expect(validateBotId(null as unknown as string)).toBe(false)
+            expect(validateBotId(undefined as unknown as string)).toBe(false)
         })
 
         it('should reject non-string', () => {
-            expect(validateBotId(123 as any)).toBe(false)
+            expect(validateBotId(123 as unknown as string)).toBe(false)
         })
 
         it('should reject partial UUID', () => {
@@ -182,8 +182,8 @@ describe('validateTimestamp', () => {
         })
 
         it('should reject null/undefined', () => {
-            expect(validateTimestamp(null as any)).toBe(false)
-            expect(validateTimestamp(undefined as any)).toBe(false)
+            expect(validateTimestamp(null as unknown as string)).toBe(false)
+            expect(validateTimestamp(undefined as unknown as string)).toBe(false)
         })
 
         it('should reject invalid date strings', () => {

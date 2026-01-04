@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Calendar, Loader2, CheckCircle, Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
@@ -30,9 +30,9 @@ export function CalendarConnectButton({ onConnected }: CalendarConnectButtonProp
             // Clean up URL
             window.history.replaceState({}, "", window.location.pathname)
         }
-    }, [onConnected])
+    }, [checkConnection, onConnected])
 
-    async function checkConnection() {
+    const checkConnection = useCallback(async () => {
         try {
             const response = await fetch("/api/calendar/events")
             const data = await response.json()
@@ -45,7 +45,7 @@ export function CalendarConnectButton({ onConnected }: CalendarConnectButtonProp
         } finally {
             setIsLoading(false)
         }
-    }
+    }, [onConnected])
 
     const handleConnect = () => {
         setIsConnecting(true)

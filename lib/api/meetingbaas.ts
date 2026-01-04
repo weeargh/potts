@@ -97,6 +97,7 @@ export async function createMeetingBot(
   }
 
   // Create bot via SDK
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const response = await client.createBot(botConfig as any)
 
   if (!response.success) {

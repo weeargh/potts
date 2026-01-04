@@ -9,7 +9,7 @@ export interface MeetingCardGridProps {
   className?: string
 }
 
-export function MeetingCardGrid({ meeting, className }: MeetingCardGridProps) {
+export function MeetingCardGrid({ meeting }: MeetingCardGridProps) {
   return (
     <Link href={`/meetings/${meeting.bot_id}`}>
       <div className="bg-card border border-border rounded-lg p-6 hover:shadow-lg transition-all hover:border-primary/50 cursor-pointer h-full flex flex-col">

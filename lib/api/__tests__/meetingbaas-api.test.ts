@@ -7,7 +7,7 @@
  * Run with: npx vitest run lib/api/__tests__/
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { MeetingBaasError } from '../meetingbaas-utils'
 
 // Mock fetch globally
@@ -49,25 +49,7 @@ function mockSuccessResponse<T>(data: T) {
     })
 }
 
-function mockErrorResponse(status: number, message: string) {
-    mockFetch.mockResolvedValueOnce({
-        ok: false,
-        status,
-        statusText: message,
-        text: async () => JSON.stringify({ error: message }),
-        headers: new Headers(),
-    })
-}
-
-function mockRateLimitResponse(retryAfter: number = 1) {
-    mockFetch.mockResolvedValueOnce({
-        ok: false,
-        status: 429,
-        statusText: 'Too Many Requests',
-        text: async () => 'Rate limited',
-        headers: new Headers({ 'retry-after': String(retryAfter) }),
-    })
-}
+// Helper functions removed: mockErrorResponse, mockRateLimitResponse (unused)
 
 // ============================================
 // Bot Function Tests
