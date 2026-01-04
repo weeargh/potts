@@ -1,7 +1,10 @@
-// Bot status codes per MeetingBaas API v2 documentation
+// Bot status codes per MeetingBaas API v2
+// Verified against @meeting-baas/sdk types - API uses "joining_call" (not "joining")
+// Note: Spec documentation has inconsistency showing "joining" in examples (line 628, 657)
+// but actual API and SDK use "joining_call" (confirmed in SDK type definitions)
 export type BotStatus =
   | "queued"
-  | "joining_call"
+  | "joining_call"  // API uses "joining_call", not "joining" as shown in some spec examples
   | "in_waiting_room"
   | "in_call_not_recording"
   | "in_call_recording"
