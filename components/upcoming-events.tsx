@@ -1,7 +1,7 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { Calendar, Video, Loader2, Clock, RefreshCw } from "lucide-react"
+import { useState, useEffect, useMemo } from "react"
+import { Calendar, Video, Loader2, Clock, RefreshCw, ChevronDown } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import type { CalendarEvent } from "@/lib/api/meetingbaas"
@@ -15,10 +15,22 @@ export function UpcomingEvents({ onRefresh }: UpcomingEventsProps) {
     const [loading, setLoading] = useState(true)
     const [schedulingEventId, setSchedulingEventId] = useState<string | null>(null)
     const [scheduledEvents, setScheduledEvents] = useState<Set<string>>(new Set())
+    const [showCount, setShowCount] = useState(3) // Start with 3 events
 
     useEffect(() => {
         loadEvents()
     }, [])
+
+    // Filter events: show only those where end_time > now (ongoing + future)
+    const upcomingEvents = useMemo(() => {
+        const now = new Date()
+        return events
+            .filter((event) => {
+                const endTime = new Date(event.end_time)
+                return endTime > now // Show if not yet ended
+            })
+            .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
+    }, [events])
 
     async function loadEvents() {
         setLoading(true)
@@ -97,6 +109,13 @@ export function UpcomingEvents({ onRefresh }: UpcomingEventsProps) {
         return "Meeting"
     }
 
+    function isOngoing(event: CalendarEvent): boolean {
+        const now = new Date()
+        const start = new Date(event.start_time)
+        const end = new Date(event.end_time)
+        return start <= now && end > now
+    }
+
     if (loading) {
         return (
             <div className="flex items-center justify-center py-8">
@@ -105,7 +124,7 @@ export function UpcomingEvents({ onRefresh }: UpcomingEventsProps) {
         )
     }
 
-    if (events.length === 0) {
+    if (upcomingEvents.length === 0) {
         return (
             <div className="flex flex-col items-center justify-center py-8 text-center">
                 <Calendar className="w-10 h-10 text-muted-foreground mb-3" />
@@ -117,16 +136,21 @@ export function UpcomingEvents({ onRefresh }: UpcomingEventsProps) {
         )
     }
 
+    const displayedEvents = upcomingEvents.slice(0, showCount)
+    const hasMore = upcomingEvents.length > showCount
+
     return (
         <div className="space-y-3">
-            {events.slice(0, 3).map((event) => {
+            {displayedEvents.map((event) => {
                 const isScheduled = scheduledEvents.has(event.event_id)
                 const isScheduling = schedulingEventId === event.event_id
+                const ongoing = isOngoing(event)
 
                 return (
                     <div
                         key={event.event_id}
-                        className="flex items-center justify-between p-4 rounded-lg border border-border bg-card hover:bg-muted/50 transition-colors"
+                        className={`flex items-center justify-between p-4 rounded-lg border bg-card hover:bg-muted/50 transition-colors ${ongoing ? "border-primary/50 bg-primary/5" : "border-border"
+                            }`}
                     >
                         <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 mb-1">
@@ -134,6 +158,11 @@ export function UpcomingEvents({ onRefresh }: UpcomingEventsProps) {
                                 <Badge variant="secondary" className="text-xs">
                                     {getMeetingPlatform(event.meeting_url)}
                                 </Badge>
+                                {ongoing && (
+                                    <Badge variant="default" className="text-xs bg-green-600">
+                                        Ongoing
+                                    </Badge>
+                                )}
                             </div>
 
                             <div className="flex items-center gap-4 text-sm text-muted-foreground">
@@ -162,12 +191,20 @@ export function UpcomingEvents({ onRefresh }: UpcomingEventsProps) {
                 )
             })}
 
-            {events.length > 3 && (
-                <p className="text-sm text-muted-foreground text-center">
-                    +{events.length - 3} more meetings
-                </p>
+            {/* Show More button */}
+            {hasMore && (
+                <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowCount(prev => prev + 3)}
+                    className="w-full gap-1.5 text-muted-foreground hover:text-foreground"
+                >
+                    <ChevronDown className="w-4 h-4" />
+                    Show more
+                </Button>
             )}
 
+            {/* Refresh button */}
             <div className="flex justify-center pt-2">
                 <Button
                     variant="ghost"
