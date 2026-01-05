@@ -251,19 +251,32 @@ async function handleBotCompleted(data: BotCompletedData) {
             }
         }
 
-        // 4. Download and store diarization
+        // 4. Download and store diarization (JSONL format - one JSON object per line)
         if (data.diarization) {
             webhookLogger.info("Downloading diarization", { bot_id })
             try {
                 const diarizationResponse = await fetch(data.diarization, { cache: "no-store" })
                 if (diarizationResponse.ok) {
-                    const diarizationData = await diarizationResponse.json()
+                    const text = await diarizationResponse.text()
+                    // Parse JSONL format (newline-delimited JSON)
+                    const diarizationData = text
+                        .split('\n')
+                        .filter(line => line.trim())
+                        .map(line => {
+                            try {
+                                return JSON.parse(line)
+                            } catch {
+                                return null
+                            }
+                        })
+                        .filter(Boolean)
+
                     await prisma.diarization.upsert({
                         where: { meetingId: meeting.id },
                         update: { data: diarizationData },
                         create: { meetingId: meeting.id, data: diarizationData }
                     })
-                    webhookLogger.info("Diarization saved", { bot_id })
+                    webhookLogger.info("Diarization saved", { bot_id, entries: diarizationData.length })
                 }
             } catch (diarizationErr) {
                 webhookLogger.warn("Failed to fetch/save diarization", {
