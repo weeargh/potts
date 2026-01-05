@@ -59,7 +59,7 @@ export async function middleware(request: NextRequest) {
   }
 
   // Protected routes - require authentication
-  if (!user && request.nextUrl.pathname.startsWith("/meetings")) {
+  if (!user && (request.nextUrl.pathname === "/" || request.nextUrl.pathname.startsWith("/meetings"))) {
     const redirectUrl = request.nextUrl.clone()
     redirectUrl.pathname = "/login"
     redirectUrl.searchParams.set("redirectedFrom", request.nextUrl.pathname)

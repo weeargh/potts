@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { Search, Plus, Volume2, ChevronDown, ChevronUp } from "lucide-react"
 import { AppLayout } from "@/components/app-layout"
 import { MeetingListItem } from "@/components/meeting-list-item"
@@ -20,18 +20,8 @@ export default function Dashboard() {
   const { meetings, isLoading: loading, mutate: reloadMeetings } = useMeetings()
 
   const [showUpcoming, setShowUpcoming] = useState(true)
-  const [calendarConnected, setCalendarConnected] = useState(false)
   const [showOnlyCompleted, setShowOnlyCompleted] = useState(true)
   const [showAll, setShowAll] = useState(false)
-
-  // Load calendar connection status
-  useEffect(() => {
-    // Check if calendar is connected via localStorage or API
-    // For now we'll just check if we have any meetings with calendar_id
-    if (meetings.length > 0) {
-      // Logic to set calendar connected state if needed
-    }
-  }, [meetings])
 
   // Filter by search query and status
   const filteredMeetings = meetings
@@ -84,7 +74,7 @@ export default function Dashboard() {
             <p className="text-sm text-muted-foreground mt-1">Manage and search your meeting recordings</p>
           </div>
           <div className="flex items-center gap-3">
-            <CalendarConnectButton onConnected={() => setCalendarConnected(true)} />
+            <CalendarConnectButton />
             <Link href="/meetings/new">
               <Button className="gap-2">
                 <Plus className="w-4 h-4" />
@@ -95,19 +85,17 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Upcoming Meetings Section */}
-      {calendarConnected && (
-        <div className="border-b border-border px-8 py-4 bg-muted/30">
-          <button
-            onClick={() => setShowUpcoming(!showUpcoming)}
-            className="flex items-center gap-2 text-sm font-medium text-foreground mb-3 hover:text-primary transition-colors"
-          >
-            {showUpcoming ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-            Upcoming Meetings
-          </button>
-          {showUpcoming && <UpcomingEvents onRefresh={reloadMeetings} />}
-        </div>
-      )}
+      {/* Upcoming Meetings Section - always shown, component handles empty state */}
+      <div className="border-b border-border px-8 py-4 bg-muted/30">
+        <button
+          onClick={() => setShowUpcoming(!showUpcoming)}
+          className="flex items-center gap-2 text-sm font-medium text-foreground mb-3 hover:text-primary transition-colors"
+        >
+          {showUpcoming ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          Upcoming Meetings
+        </button>
+        {showUpcoming && <UpcomingEvents onRefresh={reloadMeetings} />}
+      </div>
 
       {/* Search and Filters */}
       <div className="border-b border-border px-8 py-4 bg-background">
