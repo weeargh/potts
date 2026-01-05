@@ -75,19 +75,11 @@ export async function createMeetingBot(
     botConfig.entry_message = config.entry_message
   }
 
-  // Add timeout config if provided
-  if (config.timeout_config) {
-    botConfig.timeout_config = {
-      ...(config.timeout_config.waiting_room_timeout && {
-        waiting_room_timeout: config.timeout_config.waiting_room_timeout
-      }),
-      ...(config.timeout_config.no_one_joined_timeout && {
-        no_one_joined_timeout: config.timeout_config.no_one_joined_timeout
-      }),
-      ...(config.timeout_config.silence_timeout && {
-        silence_timeout: config.timeout_config.silence_timeout
-      })
-    }
+  // Add timeout config - default to 300 seconds (5 min) for all timeouts
+  botConfig.timeout_config = {
+    waiting_room_timeout: config.timeout_config?.waiting_room_timeout ?? 300,
+    no_one_joined_timeout: config.timeout_config?.no_one_joined_timeout ?? 300,
+    silence_timeout: config.timeout_config?.silence_timeout ?? 300,
   }
 
   // Add callback config if configured
@@ -472,16 +464,11 @@ export async function scheduleCalendarBot(
     ...getTranscriptionConfig(),
   }
 
-  // Add timeout config if provided
-  if (botConfig?.timeoutConfig) {
-    body.timeout_config = {
-      ...(botConfig.timeoutConfig.waitingRoomTimeout && {
-        waiting_room_timeout: botConfig.timeoutConfig.waitingRoomTimeout
-      }),
-      ...(botConfig.timeoutConfig.noOneJoinedTimeout && {
-        no_one_joined_timeout: botConfig.timeoutConfig.noOneJoinedTimeout
-      })
-    }
+  // Add timeout config - default to 300 seconds (5 min) for all timeouts
+  body.timeout_config = {
+    waiting_room_timeout: botConfig?.timeoutConfig?.waitingRoomTimeout ?? 300,
+    no_one_joined_timeout: botConfig?.timeoutConfig?.noOneJoinedTimeout ?? 300,
+    silence_timeout: 300, // Leave after 5 min of silence
   }
 
   // Add callback config
