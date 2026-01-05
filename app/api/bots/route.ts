@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { createMeetingBot, listBots } from "@/lib/api/meetingbaas"
+import { createMeetingBot, listBots, getBotStatus, getTranscript } from "@/lib/api/meetingbaas"
+import { generateSummary, extractActionItems } from "@/lib/api/claude"
 import type { CreateBotRequest } from "@/lib/data/types"
 import { createClient } from "@/lib/supabase/server"
 import { logger } from "@/lib/logger"
@@ -91,6 +92,9 @@ export async function GET(request: NextRequest) {
         bot.status === "failed"
       )
 
+      let syncedCount = 0
+      let processedCount = 0
+
       if (botsToSync.length > 0) {
         apiLogger.info("Syncing bots to database", {
           user_id: user.id,
@@ -98,58 +102,150 @@ export async function GET(request: NextRequest) {
           bots_to_sync: botsToSync.length
         })
 
-        // Upsert each bot to database
-        // Note: MeetingBaas list API returns 'duration' not 'duration_seconds' and doesn't include media URLs
+        // Process each bot - fetch full details and store everything
         for (const bot of botsToSync) {
           try {
-            // Type cast to handle API response where duration may be named differently
-            const botData = bot as unknown as {
-              bot_id: string
-              bot_name?: string
-              meeting_url?: string
-              status: string
-              duration?: number
-              duration_seconds?: number
-              video?: string
-              audio?: string
-              transcription?: string
-              created_at?: string
-            }
-            const durationSeconds = botData.duration_seconds ?? botData.duration ?? null
+            // Check if meeting already exists in database with all data
+            const existingMeeting = await prisma.meeting.findUnique({
+              where: { botId: bot.bot_id },
+              include: { transcript: true, summary: true, actionItems: true }
+            })
 
-            await prisma.meeting.upsert({
+            // Skip if already fully processed (has summary)
+            if (existingMeeting?.summary && existingMeeting.transcript) {
+              apiLogger.debug("Meeting already fully synced, skipping", { bot_id: bot.bot_id })
+              continue
+            }
+
+            // Fetch full bot details from MeetingBaas API (includes media URLs)
+            let botDetails
+            try {
+              botDetails = await getBotStatus(bot.bot_id)
+            } catch (fetchError) {
+              apiLogger.warn("Failed to fetch bot details", {
+                bot_id: bot.bot_id,
+                error: fetchError instanceof Error ? fetchError.message : String(fetchError)
+              })
+              continue
+            }
+
+            // Upsert meeting record with full details
+            const meeting = await prisma.meeting.upsert({
               where: { botId: bot.bot_id },
               update: {
-                status: bot.status,
-                durationSeconds: durationSeconds,
-                ...(botData.video && { videoUrl: botData.video }),
-                ...(botData.audio && { audioUrl: botData.audio }),
-                ...(botData.transcription && { transcriptUrl: botData.transcription }),
-                ...(bot.status === "completed" && { completedAt: new Date() }),
+                status: botDetails.status,
+                durationSeconds: botDetails.duration_seconds,
+                videoUrl: botDetails.video,
+                audioUrl: botDetails.audio,
+                transcriptUrl: botDetails.transcription,
+                diarizationUrl: botDetails.diarization,
+                ...(botDetails.status === "completed" && !existingMeeting?.completedAt && { completedAt: new Date() }),
               },
               create: {
                 userId: user.id,
                 botId: bot.bot_id,
-                botName: bot.bot_name || "Potts Recorder",
-                meetingUrl: bot.meeting_url || "",
-                status: bot.status,
-                durationSeconds: durationSeconds,
-                ...(botData.video && { videoUrl: botData.video }),
-                ...(botData.audio && { audioUrl: botData.audio }),
-                ...(botData.transcription && { transcriptUrl: botData.transcription }),
-                ...(bot.status === "completed" && { completedAt: new Date() }),
-                ...(botData.created_at && { createdAt: new Date(botData.created_at) }),
+                botName: botDetails.bot_name || "Potts Recorder",
+                meetingUrl: botDetails.meeting_url || "",
+                status: botDetails.status,
+                durationSeconds: botDetails.duration_seconds,
+                videoUrl: botDetails.video,
+                audioUrl: botDetails.audio,
+                transcriptUrl: botDetails.transcription,
+                diarizationUrl: botDetails.diarization,
+                completedAt: botDetails.status === "completed" ? new Date() : null,
               }
             })
-          } catch (upsertError) {
-            apiLogger.warn("Failed to upsert bot", {
+            syncedCount++
+
+            // For completed meetings, fetch transcript and generate AI content
+            if (botDetails.status === "completed" && botDetails.transcription && !existingMeeting?.transcript) {
+              try {
+                apiLogger.info("Fetching transcript for meeting", { bot_id: bot.bot_id })
+                const utterances = await getTranscript(botDetails.transcription)
+
+                if (utterances.length > 0) {
+                  // Store transcript in database
+                  await prisma.transcript.upsert({
+                    where: { meetingId: meeting.id },
+                    update: { data: utterances as unknown as object },
+                    create: { meetingId: meeting.id, data: utterances as unknown as object }
+                  })
+                  apiLogger.info("Transcript saved", { bot_id: bot.bot_id, utterance_count: utterances.length })
+
+                  // Generate and store AI summary if not already present
+                  if (!existingMeeting?.summary) {
+                    try {
+                      apiLogger.info("Generating AI summary", { bot_id: bot.bot_id })
+                      const [summaryResult, actionItemsResult] = await Promise.all([
+                        generateSummary(utterances),
+                        extractActionItems(utterances)
+                      ])
+
+                      // Store summary
+                      await prisma.summary.upsert({
+                        where: { meetingId: meeting.id },
+                        update: {
+                          overview: summaryResult.overview,
+                          keyPoints: summaryResult.keyPoints,
+                          decisions: summaryResult.decisions,
+                          nextSteps: summaryResult.nextSteps,
+                        },
+                        create: {
+                          meetingId: meeting.id,
+                          overview: summaryResult.overview,
+                          keyPoints: summaryResult.keyPoints,
+                          decisions: summaryResult.decisions,
+                          nextSteps: summaryResult.nextSteps,
+                        }
+                      })
+
+                      // Store action items - delete existing and recreate
+                      await prisma.actionItem.deleteMany({ where: { meetingId: meeting.id } })
+                      if (actionItemsResult.length > 0) {
+                        await prisma.actionItem.createMany({
+                          data: actionItemsResult.map(item => ({
+                            meetingId: meeting.id,
+                            description: item.description,
+                            assignee: item.assignee,
+                            dueDate: item.dueDate,
+                            completed: item.completed
+                          }))
+                        })
+                      }
+
+                      apiLogger.info("AI summary and action items saved", {
+                        bot_id: bot.bot_id,
+                        action_items: actionItemsResult.length
+                      })
+                      processedCount++
+                    } catch (aiError) {
+                      apiLogger.warn("Failed to generate AI content", {
+                        bot_id: bot.bot_id,
+                        error: aiError instanceof Error ? aiError.message : String(aiError)
+                      })
+                    }
+                  }
+                }
+              } catch (transcriptError) {
+                apiLogger.warn("Failed to fetch/process transcript", {
+                  bot_id: bot.bot_id,
+                  error: transcriptError instanceof Error ? transcriptError.message : String(transcriptError)
+                })
+              }
+            }
+          } catch (syncError) {
+            apiLogger.warn("Failed to sync bot", {
               bot_id: bot.bot_id,
-              error: upsertError instanceof Error ? upsertError.message : String(upsertError)
+              error: syncError instanceof Error ? syncError.message : String(syncError)
             })
           }
         }
 
-        apiLogger.info("Sync completed", { user_id: user.id, synced_count: botsToSync.length })
+        apiLogger.info("Sync completed", {
+          user_id: user.id,
+          synced_count: syncedCount,
+          ai_processed_count: processedCount
+        })
       }
 
       // Return the synced data from database
