@@ -3,6 +3,7 @@ import { cookies } from "next/headers"
 import { NextRequest, NextResponse } from "next/server"
 import { createCalendarConnection, listCalendars, deleteCalendar } from "@/lib/api/meetingbaas"
 import { getGoogleCredentials } from "@/lib/api/google-oauth"
+import { autoScheduleBotsForEvents } from "@/lib/api/auto-schedule"
 
 export async function GET(request: NextRequest) {
     const { searchParams, origin } = new URL(request.url)
@@ -101,6 +102,11 @@ export async function GET(request: NextRequest) {
                                 onConflict: "user_id,provider,email",
                             })
                         }
+
+                        // AUTO-SCHEDULE: Schedule bots for all upcoming meetings
+                        console.log("Auth callback: auto-scheduling bots for upcoming meetings...")
+                        const autoScheduleResult = await autoScheduleBotsForEvents(calendar.calendar_id)
+                        console.log("Auth callback: auto-schedule result:", autoScheduleResult)
                     }
                 }
             } catch (err) {

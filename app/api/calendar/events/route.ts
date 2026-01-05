@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { listCalendars, listCalendarEvents } from "@/lib/api/meetingbaas"
+import { autoScheduleBotsForEvents } from "@/lib/api/auto-schedule"
 import { prisma } from "@/lib/prisma"
 import { createClient } from "@/lib/supabase/server"
 
@@ -66,6 +67,15 @@ export async function GET(request: NextRequest) {
                     .sort((a: { start_time: string }, b: { start_time: string }) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
             } catch (eventsErr) {
                 console.error("Failed to fetch events (returning calendars anyway):", eventsErr)
+            }
+
+            // Auto-schedule bots for new events when refreshing
+            if (forceRefresh) {
+                console.log("Force refresh: auto-scheduling bots for new events...")
+                // Run in background, don't block response
+                autoScheduleBotsForEvents().catch(err =>
+                    console.error("Background auto-schedule failed:", err)
+                )
             }
 
             return NextResponse.json({
