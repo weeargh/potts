@@ -1,6 +1,5 @@
 import { createServerClient } from "@supabase/ssr"
 import { NextResponse, type NextRequest } from "next/server"
-import { ensureUserExists } from "@/lib/utils/ensure-user"
 
 export async function middleware(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
@@ -35,10 +34,8 @@ export async function middleware(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
 
-  // Ensure user record exists in public.users table (for foreign key constraints)
-  if (user) {
-    await ensureUserExists(user)
-  }
+  // Note: User creation happens in API routes via ensureUserExists()
+  // Prisma cannot run in Edge middleware
 
   // Protected routes - require authentication
   if (!user && (request.nextUrl.pathname === "/" || request.nextUrl.pathname.startsWith("/meetings"))) {
