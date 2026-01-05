@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { getTranscript } from "@/lib/api/meetingbaas"
+import { getTranscript, scheduleCalendarBot } from "@/lib/api/meetingbaas"
 import { generateSummary, extractActionItems } from "@/lib/api/claude"
 import { logger } from "@/lib/logger"
 
@@ -506,10 +506,64 @@ async function handleCalendarEventCreated(data: {
         instance_count: data.instances?.length
     })
 
-    // TODO: Implement automatic bot scheduling if configured
-    // - Check if user has auto-schedule enabled
-    // - Schedule bots for events with meeting URLs
-    // - Handle recurring events appropriately
+    // AUTO-SCHEDULE: Schedule bots for all new events with meeting URLs
+    if (!data.instances || data.instances.length === 0) {
+        webhookLogger.debug("No instances in calendar event, skipping auto-schedule")
+        return
+    }
+
+    for (const instance of data.instances) {
+        // Skip events without meeting URLs
+        if (!instance.meeting_url) {
+            webhookLogger.debug("Skipping event without meeting URL", {
+                event_id: instance.event_id,
+                title: instance.title
+            })
+            continue
+        }
+
+        // Skip events already scheduled
+        if (instance.bot_scheduled) {
+            webhookLogger.debug("Bot already scheduled for event", {
+                event_id: instance.event_id,
+                title: instance.title
+            })
+            continue
+        }
+
+        // Skip events in the past
+        const eventStart = new Date(instance.start_time)
+        if (eventStart <= new Date()) {
+            webhookLogger.debug("Skipping past event", {
+                event_id: instance.event_id,
+                title: instance.title,
+                start_time: instance.start_time
+            })
+            continue
+        }
+
+        // Schedule the bot!
+        try {
+            await scheduleCalendarBot(data.calendar_id, instance.event_id, {
+                botName: `Potts - ${instance.title}`,
+                seriesId: data.series_id,
+            })
+            webhookLogger.info("Auto-scheduled bot for new event", {
+                event_id: instance.event_id,
+                title: instance.title,
+                start_time: instance.start_time
+            })
+        } catch (error) {
+            webhookLogger.error("Failed to auto-schedule bot for event", error instanceof Error ? error : undefined, {
+                event_id: instance.event_id,
+                title: instance.title,
+                error: error instanceof Error ? error.message : String(error)
+            })
+        }
+
+        // Rate limiting: wait 500ms between scheduling calls
+        await new Promise(resolve => setTimeout(resolve, 500))
+    }
 }
 
 /**
