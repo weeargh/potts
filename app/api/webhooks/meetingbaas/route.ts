@@ -131,32 +131,89 @@ async function handleBotCompleted(data: {
     webhookLogger.info("Processing bot.completed event", { bot_id: data.bot_id })
 
     try {
-        // 1. Find the existing meeting record
-        const meeting = await prisma.meeting.findUnique({
+        // 1. Find or create meeting record
+        // Calendar-auto-scheduled bots don't pre-create Meeting records,
+        // so we need to create one if it doesn't exist
+        let meeting = await prisma.meeting.findUnique({
             where: { botId: data.bot_id }
         })
 
         if (!meeting) {
-            webhookLogger.error("Webhook received for unknown bot - meeting not found in database", undefined, {
+            webhookLogger.info("Meeting not found, creating from webhook data", {
                 bot_id: data.bot_id,
-                note: "Meeting should have been created in POST /api/bots"
+                note: "This is normal for calendar-scheduled bots"
             })
-            return
-        }
 
-        // 2. Update meeting status in DB
-        await prisma.meeting.update({
-            where: { id: meeting.id },
-            data: {
-                status: "completed",
-                durationSeconds: data.duration_seconds,
-                videoUrl: data.mp4,
-                audioUrl: data.audio,
-                diarizationUrl: data.diarization,
-                transcriptUrl: data.raw_transcription,
-                completedAt: new Date(),
+            // Fetch bot details from MeetingBaas API to get full info
+            let botDetails: { bot_name?: string; meeting_url?: string } = {}
+            try {
+                const { getBotStatus } = await import("@/lib/api/meetingbaas")
+                const details = await getBotStatus(data.bot_id)
+                botDetails = {
+                    bot_name: details.bot_name,
+                    meeting_url: details.meeting_url,
+                }
+            } catch (err) {
+                webhookLogger.warn("Could not fetch bot details from API", {
+                    bot_id: data.bot_id,
+                    error: err instanceof Error ? err.message : String(err)
+                })
             }
-        })
+
+            // Find userId - for calendar bots, look up via CalendarAccount
+            // Since we don't know which calendar this bot belongs to, find any active calendar
+            let userId: string | null = null
+            const calendarAccount = await prisma.calendarAccount.findFirst({
+                where: { isActive: true },
+                select: { userId: true }
+            })
+            if (calendarAccount) {
+                userId = calendarAccount.userId
+            } else {
+                // Fallback: get any user from the system
+                const anyUser = await prisma.user.findFirst({ select: { id: true } })
+                userId = anyUser?.id || null
+            }
+
+            if (!userId) {
+                webhookLogger.error("Cannot create meeting - no users found in system", undefined, {
+                    bot_id: data.bot_id
+                })
+                return
+            }
+
+            // Create meeting record from webhook + API data
+            meeting = await prisma.meeting.create({
+                data: {
+                    userId: userId,
+                    botId: data.bot_id,
+                    botName: botDetails.bot_name || (data.extra?.bot_name as string) || "Potts Recorder",
+                    meetingUrl: botDetails.meeting_url || (data.extra?.meeting_url as string) || "",
+                    status: "completed",
+                    durationSeconds: data.duration_seconds,
+                    videoUrl: data.mp4,
+                    audioUrl: data.audio,
+                    diarizationUrl: data.diarization,
+                    transcriptUrl: data.raw_transcription,
+                    completedAt: new Date(),
+                }
+            })
+            webhookLogger.info("Created meeting record from webhook", { meeting_id: meeting.id })
+        } else {
+            // 2. Update existing meeting status in DB
+            meeting = await prisma.meeting.update({
+                where: { id: meeting.id },
+                data: {
+                    status: "completed",
+                    durationSeconds: data.duration_seconds,
+                    videoUrl: data.mp4,
+                    audioUrl: data.audio,
+                    diarizationUrl: data.diarization,
+                    transcriptUrl: data.raw_transcription,
+                    completedAt: new Date(),
+                }
+            })
+        }
 
         // 2. Fetch and save transcript if available
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
