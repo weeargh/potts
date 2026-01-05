@@ -95,7 +95,11 @@ export default function MeetingPage({ params }: MeetingPageProps) {
                 <p className="text-sm text-foreground leading-relaxed">{summary.overview}</p>
               ) : (
                 <p className="text-sm text-muted-foreground">
-                  {meeting.status === "completed" ? "Processing AI summary..." : "Summary will be available after the meeting completes"}
+                  {meeting.status === "completed" && !meeting.transcription && meeting.video
+                    ? "Transcription not available for this meeting. The recording is available to watch."
+                    : meeting.status === "completed"
+                      ? "Processing AI summary..."
+                      : "Summary will be available after the meeting completes"}
                 </p>
               )}
             </section>
@@ -222,14 +226,27 @@ export default function MeetingPage({ params }: MeetingPageProps) {
         <div className="w-96 border-l border-border bg-background flex flex-col p-8">
           <div className="bg-card border border-border rounded-lg overflow-hidden">
             <div className="aspect-video bg-black/90 relative group">
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="text-center">
-                  <div className="w-16 h-16 bg-primary rounded-full flex items-center justify-center mx-auto mb-3 cursor-pointer hover:bg-primary/90 transition-colors">
-                    <Play className="w-6 h-6 text-primary-foreground fill-current ml-1" />
+              {meeting.video ? (
+                <video
+                  controls
+                  className="w-full h-full"
+                  src={meeting.video}
+                  poster=""
+                >
+                  Your browser does not support the video tag.
+                </video>
+              ) : (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="text-center">
+                    <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto mb-3">
+                      <Play className="w-6 h-6 text-muted-foreground fill-current ml-1" />
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {meeting.status === "completed" ? "Video not available" : "Video Recording"}
+                    </p>
                   </div>
-                  <p className="text-xs text-muted-foreground">Video Recording</p>
                 </div>
-              </div>
+              )}
             </div>
 
             {/* Video Info */}
@@ -244,7 +261,7 @@ export default function MeetingPage({ params }: MeetingPageProps) {
                 <a href={meeting.video} target="_blank" rel="noopener noreferrer">
                   <Button variant="outline" size="sm" className="w-full gap-2">
                     <BookOpen className="w-4 h-4" />
-                    View Recording
+                    Download Recording
                   </Button>
                 </a>
               )}
