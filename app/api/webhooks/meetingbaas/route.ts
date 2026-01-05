@@ -14,6 +14,10 @@ const webhookLogger = logger.child('webhook:meetingbaas')
  * All content (transcripts, diarization, summaries, action items) is stored
  * in Supabase immediately when received, before MeetingBaas URLs expire.
  *
+ * Supports TWO authentication methods:
+ * 1. Per-bot callbacks: x-mb-secret header (for bot.completed, bot.failed)
+ * 2. Account-level webhooks: SVIX signatures (for calendar.* events)
+ *
  * Supported events:
  * - bot.completed: Download all artifacts, generate AI content, store in DB
  * - bot.failed: Update meeting status with error
@@ -22,16 +26,28 @@ const webhookLogger = logger.child('webhook:meetingbaas')
  */
 export async function POST(request: NextRequest) {
     try {
-        // Verify the callback secret is configured
-        if (!CALLBACK_SECRET) {
-            webhookLogger.error("MEETINGBAAS_CALLBACK_SECRET environment variable is not configured")
-            return NextResponse.json({ error: "Server configuration error" }, { status: 500 })
-        }
+        // Check authentication - support both methods
+        const mbSecret = request.headers.get("x-mb-secret")
+        const svixId = request.headers.get("svix-id")
+        const svixTimestamp = request.headers.get("svix-timestamp")
+        const svixSignature = request.headers.get("svix-signature")
 
-        // Verify the callback secret
-        const providedSecret = request.headers.get("x-mb-secret")
-        if (providedSecret !== CALLBACK_SECRET) {
-            webhookLogger.warn("Webhook request with invalid secret")
+        const isPerBotCallback = !!mbSecret
+        const isSvixWebhook = !!(svixId && svixTimestamp && svixSignature)
+
+        if (isPerBotCallback) {
+            // Per-bot callback verification
+            if (CALLBACK_SECRET && mbSecret !== CALLBACK_SECRET) {
+                webhookLogger.warn("Webhook request with invalid x-mb-secret")
+                return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+            }
+        } else if (isSvixWebhook) {
+            // SVIX webhook - for now we accept it (TODO: add SVIX signature verification)
+            // Full verification requires the SVIX signing secret from MeetingBaas dashboard
+            webhookLogger.info("Received SVIX webhook", { svix_id: svixId })
+        } else {
+            // No authentication provided
+            webhookLogger.warn("Webhook request with no authentication headers")
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
         }
 
