@@ -1,29 +1,24 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { getTranscript, scheduleCalendarBot } from "@/lib/api/meetingbaas"
-import { generateSummary, extractActionItems } from "@/lib/api/claude"
+import { getTranscript, scheduleCalendarBot, getBotStatus } from "@/lib/api/meetingbaas"
+import { generateMeetingAIContent } from "@/lib/ai/generate"
 import { logger } from "@/lib/logger"
 
 const CALLBACK_SECRET = process.env.MEETINGBAAS_CALLBACK_SECRET || ""
 const webhookLogger = logger.child('webhook:meetingbaas')
 
 /**
- * Callback/Webhook endpoint for MeetingBaas events
- * 
- * Currently configured for CALLBACKS (bot-specific, direct HTTP):
- * - Uses x-mb-secret header for verification
- * - Configured via callback_config when creating bots
- * - Receives: bot.completed, bot.failed, bot.status_change
- * 
- * Also handles CALENDAR WEBHOOKS (account-level):
- * - Calendar events: connection_created, connection_updated, connection_deleted,
- *   connection_error, events_synced, event_created, event_updated, event_cancelled
- * 
- * Note: If using account-level webhooks (via SVIX), would need to add SVIX signature
- * verification using svix-id, svix-timestamp, svix-signature headers.
- * 
- * Configure MEETINGBAAS_CALLBACK_URL in .env to point to this endpoint
- * e.g., https://your-domain.com/api/webhooks/meetingbaas
+ * Webhook endpoint for MeetingBaas events
+ *
+ * This is the SINGLE ENTRY POINT for processing meeting data.
+ * All content (transcripts, diarization, summaries, action items) is stored
+ * in Supabase immediately when received, before MeetingBaas URLs expire.
+ *
+ * Supported events:
+ * - bot.completed: Download all artifacts, generate AI content, store in DB
+ * - bot.failed: Update meeting status with error
+ * - bot.status_change: Update meeting status
+ * - calendar.*: Handle calendar events
  */
 export async function POST(request: NextRequest) {
     try {
@@ -112,199 +107,299 @@ export async function POST(request: NextRequest) {
     }
 }
 
-/**
- * Handle bot.completed event
- * Called when a bot finishes recording and transcription
- */
-async function handleBotCompleted(data: {
+// =============================================================================
+// BOT EVENT HANDLERS
+// =============================================================================
+
+interface BotCompletedData {
     bot_id: string
-    transcription?: string
-    raw_transcription?: string
-    mp4?: string
-    audio?: string
-    diarization?: string
+    transcription?: string      // Processed transcript URL (utterances)
+    raw_transcription?: string  // Raw Gladia response URL
+    mp4?: string                // Video URL
+    audio?: string              // Audio URL
+    diarization?: string        // Diarization URL
     duration_seconds?: number
     participants?: string[]
     speakers?: string[]
     extra?: Record<string, unknown>
-}) {
-    webhookLogger.info("Processing bot.completed event", { bot_id: data.bot_id })
+}
+
+/**
+ * Handle bot.completed event - MAIN PROCESSING FUNCTION
+ *
+ * This is where ALL content is downloaded and stored in Supabase.
+ * After this function completes, all data is available locally and
+ * MeetingBaas URLs can expire without impact.
+ */
+async function handleBotCompleted(data: BotCompletedData) {
+    const { bot_id } = data
+    webhookLogger.info("Processing bot.completed event", { bot_id })
 
     try {
-        // 1. Find or create meeting record
-        // Calendar-auto-scheduled bots don't pre-create Meeting records,
-        // so we need to create one if it doesn't exist
+        // 1. Extract userId from extra (passed when bot was created)
+        const userId = await extractUserId(data.extra)
+        if (!userId) {
+            webhookLogger.error("Cannot process bot - no user_id in extra", undefined, { bot_id })
+            return
+        }
+
+        // 2. Find or create meeting record
         let meeting = await prisma.meeting.findUnique({
-            where: { botId: data.bot_id }
+            where: { botId: bot_id }
         })
 
         if (!meeting) {
-            webhookLogger.info("Meeting not found, creating from webhook data", {
-                bot_id: data.bot_id,
-                note: "This is normal for calendar-scheduled bots"
-            })
+            webhookLogger.info("Creating meeting record from webhook", { bot_id })
 
-            // Fetch bot details from MeetingBaas API to get full info
+            // Fetch additional bot details if needed
             let botDetails: { bot_name?: string; meeting_url?: string } = {}
             try {
-                const { getBotStatus } = await import("@/lib/api/meetingbaas")
-                const details = await getBotStatus(data.bot_id)
+                const details = await getBotStatus(bot_id)
                 botDetails = {
                     bot_name: details.bot_name,
                     meeting_url: details.meeting_url,
                 }
             } catch (err) {
-                webhookLogger.warn("Could not fetch bot details from API", {
-                    bot_id: data.bot_id,
+                webhookLogger.warn("Could not fetch bot details", {
+                    bot_id,
                     error: err instanceof Error ? err.message : String(err)
                 })
             }
 
-            // Find userId - for calendar bots, look up via CalendarAccount
-            // Since we don't know which calendar this bot belongs to, find any active calendar
-            let userId: string | null = null
-            const calendarAccount = await prisma.calendarAccount.findFirst({
-                where: { isActive: true },
-                select: { userId: true }
-            })
-            if (calendarAccount) {
-                userId = calendarAccount.userId
-            } else {
-                // Fallback: get any user from the system
-                const anyUser = await prisma.user.findFirst({ select: { id: true } })
-                userId = anyUser?.id || null
-            }
-
-            if (!userId) {
-                webhookLogger.error("Cannot create meeting - no users found in system", undefined, {
-                    bot_id: data.bot_id
-                })
-                return
-            }
-
-            // Create meeting record from webhook + API data
             meeting = await prisma.meeting.create({
                 data: {
-                    userId: userId,
-                    botId: data.bot_id,
+                    userId,
+                    botId: bot_id,
                     botName: botDetails.bot_name || (data.extra?.bot_name as string) || "Potts Recorder",
                     meetingUrl: botDetails.meeting_url || (data.extra?.meeting_url as string) || "",
                     status: "completed",
+                    processingStatus: "processing",
                     durationSeconds: data.duration_seconds,
-                    videoUrl: data.mp4,
-                    audioUrl: data.audio,
-                    diarizationUrl: data.diarization,
-                    transcriptUrl: data.raw_transcription,
-                    completedAt: new Date(),
+                    extra: data.extra as object,
                 }
             })
-            webhookLogger.info("Created meeting record from webhook", { meeting_id: meeting.id })
         } else {
-            // 2. Update existing meeting status in DB
+            // Update existing meeting
             meeting = await prisma.meeting.update({
                 where: { id: meeting.id },
                 data: {
                     status: "completed",
+                    processingStatus: "processing",
                     durationSeconds: data.duration_seconds,
-                    videoUrl: data.mp4,
-                    audioUrl: data.audio,
-                    diarizationUrl: data.diarization,
-                    transcriptUrl: data.raw_transcription,
-                    completedAt: new Date(),
+                    extra: data.extra as object,
                 }
             })
         }
 
-        // 2. Fetch and save transcript if available
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        let utterances: any[] = []
+        // 3. Download and store transcript (BEFORE URLs expire!)
+        let utterances: unknown[] = []
         if (data.transcription) {
-            webhookLogger.info("Fetching transcript", {
-                bot_id: data.bot_id,
-                transcript_url: data.transcription
-            })
-            utterances = await getTranscript(data.transcription)
+            webhookLogger.info("Downloading transcript", { bot_id, url: data.transcription })
+            try {
+                utterances = await getTranscript(data.transcription)
 
-            await prisma.transcript.upsert({
-                where: { meetingId: meeting.id },
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                update: { data: utterances as any },
-                create: {
-                    meetingId: meeting.id,
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    data: utterances as any
+                // Also fetch raw transcription if available (includes Gladia summaries)
+                let rawData: unknown = null
+                if (data.raw_transcription) {
+                    try {
+                        const rawResponse = await fetch(data.raw_transcription, { cache: "no-store" })
+                        if (rawResponse.ok) {
+                            rawData = await rawResponse.json()
+                        }
+                    } catch (rawErr) {
+                        webhookLogger.warn("Failed to fetch raw transcription", {
+                            bot_id,
+                            error: rawErr instanceof Error ? rawErr.message : String(rawErr)
+                        })
+                    }
                 }
-            })
-            webhookLogger.info("Transcript saved to database", {
-                bot_id: data.bot_id,
-                utterance_count: utterances.length
-            })
-        }
 
-        // 3. Generate and save summary/actions if we have transcript
-        if (utterances.length > 0) {
-            webhookLogger.info("Generating AI summary and action items", {
-                bot_id: data.bot_id,
-                utterance_count: utterances.length
-            })
-            const [summary, actionItems] = await Promise.all([
-                generateSummary(utterances),
-                extractActionItems(utterances)
-            ])
-
-            // Save Summary
-            await prisma.summary.upsert({
-                where: { meetingId: meeting.id },
-                update: {
-                    overview: summary.overview,
-                    keyPoints: summary.keyPoints,
-                    decisions: summary.decisions,
-                    nextSteps: summary.nextSteps,
-                },
-                create: {
-                    meetingId: meeting.id,
-                    overview: summary.overview,
-                    keyPoints: summary.keyPoints,
-                    decisions: summary.decisions,
-                    nextSteps: summary.nextSteps,
-                }
-            })
-
-            // Save Action Items
-            // Delete existing to avoid duplicates on retry
-            await prisma.actionItem.deleteMany({
-                where: { meetingId: meeting.id }
-            })
-
-            if (actionItems.length > 0) {
-                await prisma.actionItem.createMany({
-                    data: actionItems.map(item => ({
+                // Store transcript in database
+                await prisma.transcript.upsert({
+                    where: { meetingId: meeting.id },
+                    update: {
+                        data: utterances as object,
+                        rawData: rawData as object,
+                    },
+                    create: {
                         meetingId: meeting.id,
-                        description: item.description,
-                        assignee: item.assignee,
-                        dueDate: item.dueDate,
-                        completed: item.completed
-                    }))
+                        data: utterances as object,
+                        rawData: rawData as object,
+                    }
+                })
+                webhookLogger.info("Transcript saved", { bot_id, utterance_count: utterances.length })
+            } catch (transcriptErr) {
+                webhookLogger.error("Failed to fetch/save transcript", transcriptErr instanceof Error ? transcriptErr : undefined, {
+                    bot_id
                 })
             }
-            webhookLogger.info("Summary and action items saved to database", {
-                bot_id: data.bot_id,
-                action_item_count: actionItems.length
+        }
+
+        // 4. Download and store diarization
+        if (data.diarization) {
+            webhookLogger.info("Downloading diarization", { bot_id })
+            try {
+                const diarizationResponse = await fetch(data.diarization, { cache: "no-store" })
+                if (diarizationResponse.ok) {
+                    const diarizationData = await diarizationResponse.json()
+                    await prisma.diarization.upsert({
+                        where: { meetingId: meeting.id },
+                        update: { data: diarizationData },
+                        create: { meetingId: meeting.id, data: diarizationData }
+                    })
+                    webhookLogger.info("Diarization saved", { bot_id })
+                }
+            } catch (diarizationErr) {
+                webhookLogger.warn("Failed to fetch/save diarization", {
+                    bot_id,
+                    error: diarizationErr instanceof Error ? diarizationErr.message : String(diarizationErr)
+                })
+            }
+        }
+
+        // 5. Store participants if provided
+        if (data.participants && data.participants.length > 0) {
+            await prisma.meeting.update({
+                where: { id: meeting.id },
+                data: { participantCount: data.participants.length }
+            })
+
+            // Create participant records
+            await prisma.participant.deleteMany({ where: { meetingId: meeting.id } })
+            await prisma.participant.createMany({
+                data: data.participants.map(name => ({
+                    meetingId: meeting.id,
+                    name,
+                }))
             })
         }
+
+        // 6. Generate AI content (summaries, action items)
+        if (utterances.length > 0) {
+            webhookLogger.info("Generating AI content", { bot_id, utterance_count: utterances.length })
+            try {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const { summary, actionItems } = await generateMeetingAIContent(utterances as any)
+
+                // Store summary
+                await prisma.summary.upsert({
+                    where: { meetingId: meeting.id },
+                    update: {
+                        overview: summary.overview,
+                        keyPoints: summary.keyPoints,
+                        decisions: summary.decisions,
+                        nextSteps: summary.nextSteps,
+                    },
+                    create: {
+                        meetingId: meeting.id,
+                        overview: summary.overview,
+                        keyPoints: summary.keyPoints,
+                        decisions: summary.decisions,
+                        nextSteps: summary.nextSteps,
+                    }
+                })
+
+                // Store action items
+                await prisma.actionItem.deleteMany({ where: { meetingId: meeting.id } })
+                if (actionItems.length > 0) {
+                    await prisma.actionItem.createMany({
+                        data: actionItems.map(item => ({
+                            meetingId: meeting.id,
+                            description: item.description,
+                            assignee: item.assignee,
+                            dueDate: item.dueDate,
+                            completed: item.completed ?? false,
+                        }))
+                    })
+                }
+
+                webhookLogger.info("AI content saved", {
+                    bot_id,
+                    has_summary: !!summary.overview,
+                    action_items: actionItems.length
+                })
+            } catch (aiErr) {
+                webhookLogger.error("Failed to generate AI content", aiErr instanceof Error ? aiErr : undefined, {
+                    bot_id
+                })
+                // Don't fail the whole process - transcript is still saved
+            }
+        }
+
+        // 7. Store legacy URLs (kept for backwards compatibility, but not relied upon)
+        // These URLs expire after 4 hours, but transcript/diarization is already saved above
+        await prisma.meeting.update({
+            where: { id: meeting.id },
+            data: {
+                processingStatus: "completed",
+                videoUrl: data.mp4,
+                audioUrl: data.audio,
+                transcriptUrl: data.transcription,
+                diarizationUrl: data.diarization,
+                completedAt: new Date(),
+            }
+        })
+
+        webhookLogger.info("Bot processing completed successfully", { bot_id, meeting_id: meeting.id })
 
     } catch (error) {
         webhookLogger.error("Error processing bot completion", error instanceof Error ? error : undefined, {
-            bot_id: data.bot_id,
+            bot_id,
             error: error instanceof Error ? error.message : String(error)
         })
-        // Don't throw, we want to return 200 OK to the webhook
+
+        // Mark as failed
+        try {
+            await prisma.meeting.update({
+                where: { botId: bot_id },
+                data: { processingStatus: "failed" }
+            })
+        } catch {
+            // Ignore - meeting might not exist
+        }
     }
 }
 
 /**
+ * Extract userId from webhook extra data
+ * Falls back to calendar account lookup for legacy bots
+ */
+async function extractUserId(extra?: Record<string, unknown>): Promise<string | null> {
+    // First, try to get from extra (new bots pass this)
+    if (extra?.user_id && typeof extra.user_id === 'string') {
+        return extra.user_id
+    }
+
+    // Fallback for legacy bots: look up via calendar account
+    webhookLogger.warn("No user_id in extra, using fallback lookup")
+
+    // Try to find via calendar_id if present
+    if (extra?.calendar_id && typeof extra.calendar_id === 'string') {
+        const calendarAccount = await prisma.calendarAccount.findFirst({
+            where: { meetingbaasCalendarId: extra.calendar_id },
+            select: { userId: true }
+        })
+        if (calendarAccount) {
+            return calendarAccount.userId
+        }
+    }
+
+    // Last resort: get any active calendar account
+    const anyCalendar = await prisma.calendarAccount.findFirst({
+        where: { isActive: true },
+        select: { userId: true }
+    })
+    if (anyCalendar) {
+        return anyCalendar.userId
+    }
+
+    // Ultimate fallback: any user
+    const anyUser = await prisma.user.findFirst({ select: { id: true } })
+    return anyUser?.id || null
+}
+
+/**
  * Handle bot.failed event
- * Called when a bot fails for any reason
  */
 async function handleBotFailed(data: {
     bot_id: string
@@ -312,80 +407,89 @@ async function handleBotFailed(data: {
     error_message?: string
     extra?: Record<string, unknown>
 }) {
+    const { bot_id } = data
     webhookLogger.error("Bot failed", undefined, {
-        bot_id: data.bot_id,
+        bot_id,
         error_code: data.error_code,
         error_message: data.error_message,
-        extra: data.extra
     })
 
-    // Update meeting status in database
     try {
-        await prisma.meeting.update({
-            where: { botId: data.bot_id },
+        // First try to update existing meeting
+        const updated = await prisma.meeting.updateMany({
+            where: { botId: bot_id },
             data: {
                 status: "failed",
+                processingStatus: "failed",
                 errorCode: data.error_code,
                 errorMessage: data.error_message,
             }
         })
-        webhookLogger.info("Meeting marked as failed in database", { bot_id: data.bot_id })
+
+        if (updated.count === 0) {
+            // Meeting doesn't exist - create it
+            const userId = await extractUserId(data.extra)
+            if (userId) {
+                await prisma.meeting.create({
+                    data: {
+                        userId,
+                        botId: bot_id,
+                        botName: (data.extra?.bot_name as string) || "Potts Recorder",
+                        meetingUrl: (data.extra?.meeting_url as string) || "",
+                        status: "failed",
+                        processingStatus: "failed",
+                        errorCode: data.error_code,
+                        errorMessage: data.error_message,
+                        extra: data.extra as object,
+                    }
+                })
+            }
+        }
+
+        webhookLogger.info("Meeting marked as failed", { bot_id })
     } catch (error) {
         webhookLogger.error("Failed to update meeting status", error instanceof Error ? error : undefined, {
-            bot_id: data.bot_id
+            bot_id
         })
     }
-
-    // TODO: Implement user notification system
-    // - Send email/push notification to user
-    // - Retry if appropriate (e.g., for TRANSCRIPTION_FAILED)
 }
 
 /**
  * Handle bot.status_change event
- * Called when bot transitions between states
  */
 async function handleStatusChange(data: {
     bot_id: string
     status?: { code: string; created_at: string }
     extra?: Record<string, unknown>
 }) {
+    const { bot_id } = data
+    const statusCode = data.status?.code
+
     webhookLogger.debug("Bot status changed", {
-        bot_id: data.bot_id,
-        status_code: data.status?.code,
+        bot_id,
+        status_code: statusCode,
         timestamp: data.status?.created_at
     })
 
-    // Update meeting status in database
+    if (!statusCode) return
+
     try {
-        if (data.status?.code) {
-            await prisma.meeting.update({
-                where: { botId: data.bot_id },
-                data: {
-                    status: data.status.code,
-                }
-            })
-        }
+        await prisma.meeting.updateMany({
+            where: { botId: bot_id },
+            data: { status: statusCode }
+        })
     } catch (error) {
         webhookLogger.warn("Failed to update meeting status", {
-            bot_id: data.bot_id,
+            bot_id,
             error: error instanceof Error ? error.message : String(error)
         })
     }
-
-    // TODO: Implement real-time status updates
-    // - Update UI via websockets/SSE
-    // - Push status to connected clients
 }
 
-// ============================================
-// Calendar Webhook Handlers
-// ============================================
+// =============================================================================
+// CALENDAR EVENT HANDLERS
+// =============================================================================
 
-/**
- * Handle calendar.connection_created event
- * Triggered when a new calendar connection is created
- */
 async function handleCalendarConnectionCreated(data: {
     calendar_id: string
     platform: string
@@ -399,18 +503,9 @@ async function handleCalendarConnectionCreated(data: {
     })
 
     try {
-        // Update calendar account with MeetingBaas calendar ID
         await prisma.calendarAccount.updateMany({
-            where: {
-                meetingbaasCalendarId: data.calendar_id
-            },
-            data: {
-                isActive: true,
-                updatedAt: new Date()
-            }
-        })
-        webhookLogger.info("Calendar account updated with connection status", {
-            calendar_id: data.calendar_id
+            where: { meetingbaasCalendarId: data.calendar_id },
+            data: { isActive: true, updatedAt: new Date() }
         })
     } catch (error) {
         webhookLogger.error("Failed to update calendar connection", error instanceof Error ? error : undefined, {
@@ -419,128 +514,68 @@ async function handleCalendarConnectionCreated(data: {
     }
 }
 
-/**
- * Handle calendar.connection_updated event
- * Triggered when a calendar connection is updated (e.g., OAuth credentials refreshed)
- */
 async function handleCalendarConnectionUpdated(data: {
     calendar_id: string
     platform: string
     status?: string
 }) {
-    webhookLogger.info("Calendar connection updated", {
-        calendar_id: data.calendar_id,
-        platform: data.platform,
-        status: data.status
-    })
+    webhookLogger.info("Calendar connection updated", data)
 
     try {
         await prisma.calendarAccount.updateMany({
-            where: {
-                meetingbaasCalendarId: data.calendar_id
-            },
-            data: {
-                isActive: data.status === "active",
-                updatedAt: new Date()
-            }
+            where: { meetingbaasCalendarId: data.calendar_id },
+            data: { isActive: data.status === "active", updatedAt: new Date() }
         })
     } catch (error) {
-        webhookLogger.error("Failed to update calendar connection status", error instanceof Error ? error : undefined, {
-            calendar_id: data.calendar_id
-        })
+        webhookLogger.error("Failed to update calendar connection", error instanceof Error ? error : undefined)
     }
 }
 
-/**
- * Handle calendar.connection_deleted event
- * Triggered when a calendar connection is deleted
- */
 async function handleCalendarConnectionDeleted(data: {
     calendar_id: string
     platform: string
 }) {
-    webhookLogger.info("Calendar connection deleted", {
-        calendar_id: data.calendar_id,
-        platform: data.platform
-    })
+    webhookLogger.info("Calendar connection deleted", data)
 
     try {
         await prisma.calendarAccount.updateMany({
-            where: {
-                meetingbaasCalendarId: data.calendar_id
-            },
-            data: {
-                isActive: false,
-                updatedAt: new Date()
-            }
+            where: { meetingbaasCalendarId: data.calendar_id },
+            data: { isActive: false, updatedAt: new Date() }
         })
     } catch (error) {
-        webhookLogger.error("Failed to mark calendar connection as deleted", error instanceof Error ? error : undefined, {
-            calendar_id: data.calendar_id
-        })
+        webhookLogger.error("Failed to mark calendar as deleted", error instanceof Error ? error : undefined)
     }
 }
 
-/**
- * Handle calendar.connection_error event
- * Triggered when a calendar connection encounters an error
- */
 async function handleCalendarConnectionError(data: {
     calendar_id: string
     platform: string
     error?: string
     status?: string
 }) {
-    webhookLogger.error("Calendar connection error", undefined, {
-        calendar_id: data.calendar_id,
-        platform: data.platform,
-        error: data.error,
-        status: data.status
-    })
+    webhookLogger.error("Calendar connection error", undefined, data)
 
     try {
         await prisma.calendarAccount.updateMany({
-            where: {
-                meetingbaasCalendarId: data.calendar_id
-            },
-            data: {
-                isActive: data.status === "active",
-                updatedAt: new Date()
-            }
+            where: { meetingbaasCalendarId: data.calendar_id },
+            data: { isActive: false, updatedAt: new Date() }
         })
     } catch (error) {
-        webhookLogger.error("Failed to update calendar connection error status", error instanceof Error ? error : undefined, {
-            calendar_id: data.calendar_id
-        })
+        webhookLogger.error("Failed to update calendar error status", error instanceof Error ? error : undefined)
     }
-
-    // TODO: Notify user about connection error
-    // - Send email/push notification
-    // - Show in-app notification
 }
 
-/**
- * Handle calendar.events_synced event
- * Triggered after a calendar sync operation completes (initial sync)
- */
 async function handleCalendarEventsSynced(data: {
     calendar_id: string
     events_synced?: number
     sync_type?: string
 }) {
-    webhookLogger.info("Calendar events synced", {
-        calendar_id: data.calendar_id,
-        events_synced: data.events_synced,
-        sync_type: data.sync_type
-    })
-
-    // This is informational - no database update needed
-    // The events themselves are handled by calendar.event_created/updated/cancelled webhooks
+    webhookLogger.info("Calendar events synced", data)
+    // Informational only - individual events handled by event_created/updated/cancelled
 }
 
 /**
- * Handle calendar.event_created event
- * Triggered when a new event is created in a connected calendar
+ * Handle calendar.event_created - AUTO-SCHEDULE bots for new events
  */
 async function handleCalendarEventCreated(data: {
     calendar_id: string
@@ -559,74 +594,54 @@ async function handleCalendarEventCreated(data: {
     webhookLogger.info("Calendar event created", {
         calendar_id: data.calendar_id,
         event_type: data.event_type,
-        series_id: data.series_id,
         instance_count: data.instances?.length
     })
 
-    // AUTO-SCHEDULE: Schedule bots for all new events with meeting URLs
-    if (!data.instances || data.instances.length === 0) {
-        webhookLogger.debug("No instances in calendar event, skipping auto-schedule")
-        return
-    }
+    if (!data.instances || data.instances.length === 0) return
+
+    // Get userId from calendar account
+    const calendarAccount = await prisma.calendarAccount.findFirst({
+        where: { meetingbaasCalendarId: data.calendar_id },
+        select: { userId: true }
+    })
+
+    const userId = calendarAccount?.userId
 
     for (const instance of data.instances) {
         // Skip events without meeting URLs
-        if (!instance.meeting_url) {
-            webhookLogger.debug("Skipping event without meeting URL", {
-                event_id: instance.event_id,
-                title: instance.title
-            })
-            continue
-        }
+        if (!instance.meeting_url) continue
 
-        // Skip events already scheduled
-        if (instance.bot_scheduled) {
-            webhookLogger.debug("Bot already scheduled for event", {
-                event_id: instance.event_id,
-                title: instance.title
-            })
-            continue
-        }
+        // Skip already scheduled events
+        if (instance.bot_scheduled) continue
 
-        // Skip events in the past
+        // Skip past events
         const eventStart = new Date(instance.start_time)
-        if (eventStart <= new Date()) {
-            webhookLogger.debug("Skipping past event", {
-                event_id: instance.event_id,
-                title: instance.title,
-                start_time: instance.start_time
-            })
-            continue
-        }
+        if (eventStart <= new Date()) continue
 
-        // Schedule the bot!
+        // Schedule the bot with user_id
         try {
             await scheduleCalendarBot(data.calendar_id, instance.event_id, {
                 botName: `Potts - ${instance.title}`,
                 seriesId: data.series_id,
+                userId: userId || undefined,  // Pass userId for webhook association
             })
-            webhookLogger.info("Auto-scheduled bot for new event", {
+            webhookLogger.info("Auto-scheduled bot for event", {
                 event_id: instance.event_id,
                 title: instance.title,
                 start_time: instance.start_time
             })
         } catch (error) {
-            webhookLogger.error("Failed to auto-schedule bot for event", error instanceof Error ? error : undefined, {
+            webhookLogger.error("Failed to auto-schedule bot", error instanceof Error ? error : undefined, {
                 event_id: instance.event_id,
-                title: instance.title,
-                error: error instanceof Error ? error.message : String(error)
+                title: instance.title
             })
         }
 
-        // Rate limiting: wait 500ms between scheduling calls
+        // Rate limiting
         await new Promise(resolve => setTimeout(resolve, 500))
     }
 }
 
-/**
- * Handle calendar.event_updated event
- * Triggered when an existing event is updated in a connected calendar
- */
 async function handleCalendarEventUpdated(data: {
     calendar_id: string
     event_type: "one_off" | "recurring"
@@ -643,26 +658,15 @@ async function handleCalendarEventUpdated(data: {
 }) {
     webhookLogger.info("Calendar event updated", {
         calendar_id: data.calendar_id,
-        event_type: data.event_type,
-        series_id: data.series_id,
         instance_count: data.affected_instances?.length
     })
-
-    // TODO: Update bot schedules if meeting time/URL changed
-    // - Check if bot is already scheduled for this event
-    // - Update bot schedule if within lock window (>4 min before start)
-    // - Create new bot if outside lock window
+    // TODO: Handle event rescheduling - update bot schedules if time changed
 }
 
-/**
- * Handle calendar.event_cancelled event
- * Triggered when an event is cancelled in a connected calendar
- */
 async function handleCalendarEventCancelled(data: {
     calendar_id: string
     event_type: "one_off" | "recurring"
     series_id?: string
-    series_bot_scheduled?: boolean
     cancelled_instances?: Array<{
         event_id: string
         title: string
@@ -671,13 +675,7 @@ async function handleCalendarEventCancelled(data: {
 }) {
     webhookLogger.info("Calendar event cancelled", {
         calendar_id: data.calendar_id,
-        event_type: data.event_type,
-        series_id: data.series_id,
         instance_count: data.cancelled_instances?.length
     })
-
     // TODO: Cancel scheduled bots for cancelled events
-    // - Find meetings linked to these event IDs
-    // - Cancel scheduled bots if they haven't started yet
-    // - Leave active bots if they're already in the meeting
 }

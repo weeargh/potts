@@ -1,6 +1,6 @@
 # Database Schema Documentation
 
-> **Last Updated:** 2026-01-04  
+> **Last Updated:** 2026-01-05  
 > **Database:** PostgreSQL (Supabase)  
 > **ORM:** Prisma
 
@@ -14,6 +14,33 @@
 | **Supabase** | ✅ | RLS policies, `auth.uid()`, real-time ready |
 | **Google Calendar** | ✅ | OAuth tokens, event sync, refresh tokens |
 | **Vercel** | ✅ | Serverless compatible, connection pooling via `directUrl` |
+| **Claude AI** | ✅ | Summary generation, action item extraction |
+
+---
+
+## Architecture: Local-First Data Strategy
+
+The application follows a **local-first** approach to minimize external API dependencies:
+
+```
+┌───────────────┐     ┌──────────────────┐     ┌─────────────────┐
+│  MeetingBaas  │────▶│  Force Sync      │────▶│   Supabase DB   │
+│     API       │     │  (/api/bots?sync)│     │  (Local Store)  │
+└───────────────┘     └──────────────────┘     └────────┬────────┘
+                                                        │
+                                                        ▼
+                      ┌──────────────────┐     ┌─────────────────┐
+                      │   Meeting Detail │◀────│   Local-First   │
+                      │   Page (UI)      │     │   API Routes    │
+                      └──────────────────┘     └─────────────────┘
+```
+
+### Data Flow
+
+1. **Sync Once**: `GET /api/bots?sync=true` fetches from MeetingBaas and stores locally
+2. **Serve Locally**: All subsequent reads come from Supabase (no external API calls)
+3. **Generate AI Locally**: If transcript exists but summary doesn't, generate from local data
+4. **Fallback Only**: MeetingBaas API is only called if data doesn't exist locally
 
 ---
 
@@ -27,6 +54,7 @@ erDiagram
     meetings ||--o| summaries : "has"
     meetings ||--o{ action_items : "contains"
     meetings ||--o{ participants : "includes"
+    calendar_events ||--o{ meetings : "schedules"
 ```
 
 ---
@@ -35,19 +63,20 @@ erDiagram
 
 | Table | Purpose | Key Integrations |
 |-------|---------|------------------|
-| `users` | User profiles | Supabase Auth |
+| `users` | User profiles (synced from auth) | Supabase Auth |
 | `calendar_accounts` | OAuth tokens | Google Calendar, MeetingBaas |
 | `meetings` | Bot recordings | MeetingBaas API |
 | `transcripts` | Full transcripts | Gladia (via MeetingBaas) |
-| `summaries` | AI summaries | Gladia summarization |
-| `action_items` | Extracted tasks | AI extraction |
+| `summaries` | AI summaries | Claude AI |
+| `action_items` | Extracted tasks | Claude AI |
 | `participants` | Meeting attendees | MeetingBaas API |
+| `calendar_events` | Cached calendar events | Google Calendar (cached) |
 
 ---
 
 ## Table: `users`
 
-Stores user profile data. Authentication is handled by **Supabase Auth**.
+Stores user profile data synced from **Supabase Auth**.
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -57,6 +86,20 @@ Stores user profile data. Authentication is handled by **Supabase Auth**.
 | `avatar_url` | TEXT | Profile picture URL |
 | `created_at` | TIMESTAMPTZ | Account creation time |
 | `updated_at` | TIMESTAMPTZ | Last update (auto-trigger) |
+
+### User Sync Mechanism
+
+Users are synced from `auth.users` to `public.users` automatically via:
+
+1. **Middleware** - On every page visit
+2. **API Routes** - Before any authenticated database operation
+
+```typescript
+// lib/utils/ensure-user.ts
+await ensureUserExists(authUser)  // Called in all authenticated routes
+```
+
+This ensures the user record exists before creating related records (meetings, calendars, etc.).
 
 **RLS Policy:** Users can only read/update their own row.
 
@@ -72,12 +115,14 @@ Stores **Google Calendar OAuth tokens** for calendar sync.
 | `user_id` | UUID | FK → `users.id` |
 | `provider` | TEXT | `google` or `microsoft` |
 | `email` | TEXT | Calendar account email |
-| `access_token` | TEXT | OAuth access token (⚠️ encrypt) |
-| `refresh_token` | TEXT | OAuth refresh token (⚠️ encrypt) |
+| `access_token` | TEXT | OAuth access token (🔒 encrypted) |
+| `refresh_token` | TEXT | OAuth refresh token (🔒 encrypted) |
 | `expires_at` | TIMESTAMPTZ | Token expiration |
 | `scope` | TEXT | OAuth scopes granted |
 | `meetingbaas_calendar_id` | TEXT | MeetingBaas calendar UUID |
 | `is_active` | BOOLEAN | Whether sync is enabled |
+
+**Unique Constraint:** `(user_id, provider, email)`
 
 **References:**
 - [Google OAuth 2.0](https://developers.google.com/identity/protocols/oauth2)
@@ -87,13 +132,13 @@ Stores **Google Calendar OAuth tokens** for calendar sync.
 
 ## Table: `meetings`
 
-Stores **MeetingBaas bot** recordings and metadata.
+Stores **MeetingBaas bot** recordings and metadata. This is the **local cache** of meeting data.
 
 | Column | Type | MeetingBaas Field | Description |
 |--------|------|-------------------|-------------|
 | `id` | UUID | - | Internal ID |
 | `user_id` | UUID | - | FK → `users.id` |
-| `bot_id` | TEXT | `bot_id` | MeetingBaas bot UUID |
+| `bot_id` | TEXT | `bot_id` | MeetingBaas bot UUID (unique) |
 | `bot_name` | TEXT | `bot_name` | Display name in meeting |
 | `meeting_url` | TEXT | `meeting_url` | Zoom/Meet/Teams URL |
 | `calendar_event_id` | TEXT | `event_id` | If scheduled via calendar |
@@ -147,58 +192,67 @@ Per [MeetingBaas Error Reference](https://doc.meetingbaas.com/api-reference/bots
 
 ## Table: `transcripts`
 
-Stores full transcript JSON from **Gladia** (via MeetingBaas).
+Stores full transcript JSON from **Gladia** (via MeetingBaas). One-to-one with `meetings`.
 
 | Column | Type | Description |
 |--------|------|-------------|
 | `id` | UUID | Primary key |
-| `meeting_id` | UUID | FK → `meetings.id` |
+| `meeting_id` | UUID | FK → `meetings.id` (unique) |
 | `data` | JSONB | Full transcript with utterances |
+| `created_at` | TIMESTAMPTZ | When stored |
 
 **JSON Structure:**
 ```json
-{
-  "utterances": [
-    {
-      "speaker": 0,
-      "text": "Hello everyone",
-      "start": 0.0,
-      "end": 1.5,
-      "words": [...]
-    }
-  ]
-}
+[
+  {
+    "speaker": 0,
+    "text": "Hello everyone",
+    "start": 0.0,
+    "end": 1.5,
+    "words": [...]
+  }
+]
 ```
 
 ---
 
 ## Table: `summaries`
 
-Stores AI-generated summaries from **Gladia summarization**.
+Stores AI-generated summaries from **Claude AI**. One-to-one with `meetings`.
 
 | Column | Type | Description |
 |--------|------|-------------|
 | `id` | UUID | Primary key |
-| `meeting_id` | UUID | FK → `meetings.id` |
+| `meeting_id` | UUID | FK → `meetings.id` (unique) |
 | `overview` | TEXT | Meeting summary paragraph |
 | `key_points` | TEXT[] | Bullet points array |
 | `decisions` | TEXT[] | Decisions made |
-| `next_steps` | TEXT[] | Action items |
+| `next_steps` | TEXT[] | Follow-up actions |
+| `created_at` | TIMESTAMPTZ | When generated |
+
+### AI Generation Flow
+
+1. Transcript fetched from MeetingBaas (or read from local `transcripts` table)
+2. Claude AI generates summary and extracts action items
+3. Results saved to `summaries` and `action_items` tables
+4. Subsequent requests serve from local database (no AI re-generation)
 
 ---
 
 ## Table: `action_items`
 
-Extracted tasks from meetings.
+Extracted tasks from meetings via **Claude AI**. Many-to-one with `meetings`.
 
 | Column | Type | Description |
 |--------|------|-------------|
 | `id` | UUID | Primary key |
 | `meeting_id` | UUID | FK → `meetings.id` |
 | `description` | TEXT | Task description |
-| `assignee` | TEXT | Person responsible |
-| `due_date` | TEXT | Due date string |
-| `completed` | BOOLEAN | Completion status |
+| `assignee` | TEXT | Person responsible (nullable) |
+| `due_date` | TEXT | Due date string (nullable) |
+| `completed` | BOOLEAN | Completion status (default: false) |
+| `created_at` | TIMESTAMPTZ | When extracted |
+| `updated_at` | TIMESTAMPTZ | Last update |
 
 ---
 
@@ -218,6 +272,39 @@ Meeting attendees from MeetingBaas.
 
 ---
 
+## Table: `calendar_events`
+
+Cached calendar events to reduce external API calls. TTL: 8 hours.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | UUID | Primary key |
+| `event_id` | TEXT | Google Calendar event ID (unique) |
+| `calendar_id` | TEXT | MeetingBaas calendar UUID |
+| `title` | TEXT | Event title |
+| `start_time` | TIMESTAMPTZ | Event start |
+| `end_time` | TIMESTAMPTZ | Event end |
+| `meeting_url` | TEXT | Zoom/Meet/Teams URL |
+| `platform` | TEXT | `zoom`, `google_meet`, `teams` |
+| `bot_scheduled` | BOOLEAN | Whether bot is scheduled |
+| `raw_data` | JSONB | Full event data from API |
+| `last_fetched_at` | TIMESTAMPTZ | Cache timestamp |
+
+### Caching Strategy
+
+```typescript
+// 8-hour cache expiry
+const eightHoursAgo = new Date(Date.now() - 8 * 60 * 60 * 1000)
+
+// Check if cache is valid
+if (cachedEvent.lastFetchedAt > eightHoursAgo) {
+  return cachedEvent  // Serve from cache
+}
+// Otherwise fetch fresh from Google Calendar via MeetingBaas
+```
+
+---
+
 ## Indices
 
 | Index | Table | Columns | Purpose |
@@ -229,6 +316,9 @@ Meeting attendees from MeetingBaas.
 | `idx_meetings_calendar_event` | meetings | calendar_event_id | Calendar sync |
 | `idx_meetings_status_created` | meetings | status, created_at DESC | Dashboard queries |
 | `idx_calendar_accounts_mb_id` | calendar_accounts | meetingbaas_calendar_id | Calendar lookups |
+| `idx_action_items_meeting` | action_items | meeting_id | Meeting action items |
+| `idx_participants_meeting` | participants | meeting_id | Meeting participants |
+| `idx_calendar_events_calendar` | calendar_events | calendar_id | Calendar filtering |
 
 ---
 
@@ -244,9 +334,43 @@ CREATE POLICY "Users can view own meetings" ON meetings
 
 ---
 
+## Data Lifecycle
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                          MEETING LIFECYCLE                               │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│  1. CREATE BOT                                                           │
+│     POST /api/bots → MeetingBaas → Save to `meetings` (status: queued)  │
+│                                                                          │
+│  2. BOT RECORDS                                                          │
+│     Webhook updates → status: in_call_recording                         │
+│                                                                          │
+│  3. SYNC COMPLETED                                                       │
+│     GET /api/bots?sync=true                                             │
+│     ├── Fetch bot details from MeetingBaas                              │
+│     ├── Download transcript → Save to `transcripts`                     │
+│     ├── Generate AI summary → Save to `summaries`                       │
+│     ├── Extract action items → Save to `action_items`                   │
+│     └── Update `meetings` with video/audio URLs                         │
+│                                                                          │
+│  4. VIEW MEETING (Local-First)                                           │
+│     GET /api/bots/:id                                                   │
+│     ├── Check `meetings` table (with joins)                             │
+│     ├── If exists → Return from DB (no external calls)                  │
+│     ├── If missing summary → Generate from local transcript             │
+│     └── Fallback → Fetch from MeetingBaas (rare)                        │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
 ## References
 
 - [MeetingBaas API v2 Docs](https://doc.meetingbaas.com)
 - [Supabase Auth](https://supabase.com/docs/guides/auth)
 - [Google Calendar API](https://developers.google.com/calendar/api)
 - [Prisma with Supabase](https://www.prisma.io/docs/guides/database/supabase)
+- [Claude AI API](https://docs.anthropic.com/claude/reference)

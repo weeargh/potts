@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getGoogleAuthUrl } from "@/lib/api/google-oauth"
 import { createClient } from "@/lib/supabase/server"
+import { ensureUserExists } from "@/lib/utils/ensure-user"
 
 export async function GET(request: NextRequest) {
     const { origin } = new URL(request.url)
@@ -13,6 +14,9 @@ export async function GET(request: NextRequest) {
         // Redirect to login instead of returning JSON
         return NextResponse.redirect(`${origin}/login?redirect=/api/calendar/connect`)
     }
+
+    // Ensure user exists in database
+    await ensureUserExists(user)
 
     const redirectUri = `${origin}/api/calendar/callback`
 

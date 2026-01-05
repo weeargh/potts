@@ -3,6 +3,7 @@ import { exchangeCodeForTokens, getGoogleCredentials } from "@/lib/api/google-oa
 import { createCalendarConnection, listCalendars, deleteCalendar } from "@/lib/api/meetingbaas"
 import { createClient } from "@/lib/supabase/server"
 import { encrypt } from "@/lib/crypto"
+import { ensureUserExists } from "@/lib/utils/ensure-user"
 
 export async function GET(request: NextRequest) {
     const { searchParams, origin } = new URL(request.url)
@@ -94,6 +95,11 @@ export async function GET(request: NextRequest) {
         const supabase = await createClient()
         const { data: { user } } = await supabase.auth.getUser()
         console.log("Supabase user:", user?.id)
+
+        // Ensure user exists in database before storing calendar
+        if (user) {
+            await ensureUserExists(user)
+        }
 
         if (user && calendar.account_email) {
             // Store calendar connection in Supabase with encrypted tokens

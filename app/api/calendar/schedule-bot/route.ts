@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { scheduleCalendarBot } from "@/lib/api/meetingbaas"
 import { createClient } from "@/lib/supabase/server"
+import { ensureUserExists } from "@/lib/utils/ensure-user"
 
 export async function POST(request: NextRequest) {
     try {
@@ -15,6 +16,9 @@ export async function POST(request: NextRequest) {
             )
         }
 
+        // Ensure user exists in database
+        await ensureUserExists(user)
+
         const body = await request.json()
         const { calendar_id, event_id, series_id, bot_name } = body
 
@@ -28,6 +32,7 @@ export async function POST(request: NextRequest) {
         const result = await scheduleCalendarBot(calendar_id, event_id, {
             botName: bot_name || "Potts Recorder",
             seriesId: series_id, // Pass series_id to fix MeetingBaas API validation
+            userId: user.id,     // Pass user_id for webhook association
         })
 
         return NextResponse.json({

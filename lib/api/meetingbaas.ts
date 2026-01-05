@@ -48,7 +48,7 @@ const client = createBaasClient({
  * @throws {MeetingBaasError} If validation fails or API returns error
  */
 export async function createMeetingBot(
-  config: CreateBotRequest
+  config: CreateBotRequest & { user_id?: string }
 ): Promise<CreateBotResponse> {
   // Validate meeting URL
   const urlValidation = validateMeetingUrl(config.meeting_url)
@@ -86,6 +86,15 @@ export async function createMeetingBot(
   const callbackConfig = getCallbackConfig()
   if (callbackConfig) {
     Object.assign(botConfig, callbackConfig)
+  }
+
+  // IMPORTANT: Pass user_id in extra for webhook to associate with correct user
+  if (config.user_id) {
+    botConfig.extra = {
+      user_id: config.user_id,
+      bot_name: config.bot_name.trim(),
+      meeting_url: config.meeting_url.trim(),
+    }
   }
 
   // Create bot via SDK
@@ -443,6 +452,7 @@ export async function scheduleCalendarBot(
     recordingMode?: "speaker_view" | "gallery_view" | "audio_only"
     allOccurrences?: boolean
     seriesId?: string
+    userId?: string  // IMPORTANT: Pass user_id for webhook association
     timeoutConfig?: {
       waitingRoomTimeout?: number
       noOneJoinedTimeout?: number
@@ -475,6 +485,16 @@ export async function scheduleCalendarBot(
   const callbackConfig = getCallbackConfig()
   if (callbackConfig) {
     Object.assign(body, callbackConfig)
+  }
+
+  // IMPORTANT: Pass user_id in extra for webhook to associate with correct user
+  if (botConfig?.userId) {
+    body.extra = {
+      user_id: botConfig.userId,
+      bot_name: botConfig.botName || "Potts Recorder",
+      calendar_id: calendarId,
+      event_id: eventId,
+    }
   }
 
   return apiPost<{ bot_id: string }>(`/calendars/${calendarId}/bots`, body)

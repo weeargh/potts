@@ -3,6 +3,7 @@ import { listCalendars, listCalendarEvents } from "@/lib/api/meetingbaas"
 import { autoScheduleBotsForEvents } from "@/lib/api/auto-schedule"
 import { prisma } from "@/lib/prisma"
 import { createClient } from "@/lib/supabase/server"
+import { ensureUserExists } from "@/lib/utils/ensure-user"
 
 export async function GET(request: NextRequest) {
     // Authenticate user
@@ -15,6 +16,9 @@ export async function GET(request: NextRequest) {
             { status: 401 }
         )
     }
+
+    // Ensure user exists in database
+    await ensureUserExists(user)
 
     const { searchParams } = new URL(request.url)
     const calendarId = searchParams.get("calendar_id")

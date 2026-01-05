@@ -1,6 +1,6 @@
 import { createServerClient } from "@supabase/ssr"
 import { NextResponse, type NextRequest } from "next/server"
-import { prisma } from "@/lib/prisma"
+import { ensureUserExists } from "@/lib/utils/ensure-user"
 
 export async function middleware(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
@@ -37,25 +37,7 @@ export async function middleware(request: NextRequest) {
 
   // Ensure user record exists in public.users table (for foreign key constraints)
   if (user) {
-    try {
-      await prisma.user.upsert({
-        where: { id: user.id },
-        update: {
-          email: user.email || "",
-          ...(user.user_metadata?.name && { name: user.user_metadata.name }),
-          ...(user.user_metadata?.avatar_url && { avatarUrl: user.user_metadata.avatar_url }),
-        },
-        create: {
-          id: user.id,
-          email: user.email || "",
-          ...(user.user_metadata?.name && { name: user.user_metadata.name }),
-          ...(user.user_metadata?.avatar_url && { avatarUrl: user.user_metadata.avatar_url }),
-        },
-      })
-    } catch (error) {
-      // Log error but don't block request
-      console.error("Failed to sync user to database:", error)
-    }
+    await ensureUserExists(user)
   }
 
   // Protected routes - require authentication

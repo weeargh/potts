@@ -52,37 +52,58 @@ model Meeting {
   recordingMode    String        @default("speaker_view") @map("recording_mode")
   durationSeconds  Int?          @map("duration_seconds")
   participantCount Int?          @map("participant_count")
+  // Legacy URL fields (kept for backwards compatibility, expire after 4 hours)
   videoUrl         String?       @map("video_url")
   audioUrl         String?       @map("audio_url")
   transcriptUrl    String?       @map("transcript_url")
   diarizationUrl   String?       @map("diarization_url")
+  // Error tracking
   errorCode        String?       @map("error_code")
   errorMessage     String?       @map("error_message")
   endReason        String?       @map("end_reason")
+  // Processing status: pending, processing, completed, failed
+  processingStatus String?       @map("processing_status")
+  // Extra data from MeetingBaas (includes user_id for calendar bots)
+  extra            Json?
+  // Timestamps
   createdAt        DateTime      @default(now()) @map("created_at")
   updatedAt        DateTime      @updatedAt @map("updated_at")
   completedAt      DateTime?     @map("completed_at")
+  // Relations
   actionItems      ActionItem[]
   user             User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   participants     Participant[]
   summary          Summary?
   transcript       Transcript?
+  diarization      Diarization?
 
   @@index([userId, createdAt])
   @@index([status])
   @@index([calendarEventId])
   @@index([status, createdAt(sort: Desc)])
+  @@index([processingStatus])
   @@map("meetings")
 }
 
 model Transcript {
   id        String   @id @default(uuid()) @db.Uuid
   meetingId String   @unique @map("meeting_id") @db.Uuid
-  data      Json
+  data      Json     // Processed utterances array
+  rawData   Json?    @map("raw_data") // Raw Gladia response (includes summaries, translations, etc.)
   createdAt DateTime @default(now()) @map("created_at")
   meeting   Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
 
   @@map("transcripts")
+}
+
+model Diarization {
+  id        String   @id @default(uuid()) @db.Uuid
+  meetingId String   @unique @map("meeting_id") @db.Uuid
+  data      Json     // Speaker identification data with timestamps
+  createdAt DateTime @default(now()) @map("created_at")
+  meeting   Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@map("diarizations")
 }
 
 model Summary {
