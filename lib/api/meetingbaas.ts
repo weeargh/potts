@@ -66,7 +66,7 @@ export async function createMeetingBot(
     bot_name: config.bot_name.trim(),
     meeting_url: config.meeting_url.trim(),
     recording_mode: config.recording_mode || "speaker_view",
-    allow_multiple_bots: config.allow_multiple_bots ?? true,
+    allow_multiple_bots: config.allow_multiple_bots ?? false, // Prevent duplicate bots
     ...getTranscriptionConfig(),
   }
 
@@ -217,7 +217,7 @@ export async function createScheduledBot(config: {
     bot_name: config.bot_name.trim(),
     join_at: config.join_at,
     recording_mode: config.recording_mode || "speaker_view",
-    allow_multiple_bots: config.allow_multiple_bots ?? true,
+    allow_multiple_bots: config.allow_multiple_bots ?? false, // Prevent duplicate bots
     ...getTranscriptionConfig(),
     ...getCallbackConfig(),
   }
