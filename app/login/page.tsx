@@ -26,7 +26,7 @@ function LoginForm() {
         scopes: calendarScopes,
         queryParams: {
           access_type: "offline",
-          prompt: "consent",
+          prompt: "select_account", // Changed from "consent" - only ask for consent on first login
         },
       },
     })
