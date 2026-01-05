@@ -81,10 +81,96 @@ export async function GET(request: NextRequest) {
     const limit = limitParam ? Math.min(parseInt(limitParam, 10), 100) : 20 // Default 20, max 100
 
     if (forceSync) {
+      apiLogger.info("Force sync requested - fetching from MeetingBaas API", { user_id: user.id })
       const bots = await listBots()
-      // Here we could implement a bulk upsert logic if needed
-      // For now, let's just return the live data
-      return NextResponse.json({ bots })
+
+      // Sync completed/in-progress bots to database
+      const botsToSync = bots.filter(bot =>
+        bot.status === "completed" ||
+        bot.status === "in_call_recording" ||
+        bot.status === "failed"
+      )
+
+      if (botsToSync.length > 0) {
+        apiLogger.info("Syncing bots to database", {
+          user_id: user.id,
+          total_bots: bots.length,
+          bots_to_sync: botsToSync.length
+        })
+
+        // Upsert each bot to database
+        // Note: MeetingBaas list API returns 'duration' not 'duration_seconds' and doesn't include media URLs
+        for (const bot of botsToSync) {
+          try {
+            // Type cast to handle API response where duration may be named differently
+            const botData = bot as unknown as {
+              bot_id: string
+              bot_name?: string
+              meeting_url?: string
+              status: string
+              duration?: number
+              duration_seconds?: number
+              video?: string
+              audio?: string
+              transcription?: string
+              created_at?: string
+            }
+            const durationSeconds = botData.duration_seconds ?? botData.duration ?? null
+
+            await prisma.meeting.upsert({
+              where: { botId: bot.bot_id },
+              update: {
+                status: bot.status,
+                durationSeconds: durationSeconds,
+                ...(botData.video && { videoUrl: botData.video }),
+                ...(botData.audio && { audioUrl: botData.audio }),
+                ...(botData.transcription && { transcriptUrl: botData.transcription }),
+                ...(bot.status === "completed" && { completedAt: new Date() }),
+              },
+              create: {
+                userId: user.id,
+                botId: bot.bot_id,
+                botName: bot.bot_name || "Potts Recorder",
+                meetingUrl: bot.meeting_url || "",
+                status: bot.status,
+                durationSeconds: durationSeconds,
+                ...(botData.video && { videoUrl: botData.video }),
+                ...(botData.audio && { audioUrl: botData.audio }),
+                ...(botData.transcription && { transcriptUrl: botData.transcription }),
+                ...(bot.status === "completed" && { completedAt: new Date() }),
+                ...(botData.created_at && { createdAt: new Date(botData.created_at) }),
+              }
+            })
+          } catch (upsertError) {
+            apiLogger.warn("Failed to upsert bot", {
+              bot_id: bot.bot_id,
+              error: upsertError instanceof Error ? upsertError.message : String(upsertError)
+            })
+          }
+        }
+
+        apiLogger.info("Sync completed", { user_id: user.id, synced_count: botsToSync.length })
+      }
+
+      // Return the synced data from database
+      const syncedMeetings = await prisma.meeting.findMany({
+        where: { userId: user.id },
+        take: limit,
+        orderBy: { createdAt: "desc" },
+        include: { summary: true }
+      })
+
+      const syncedBots = syncedMeetings.map(m => ({
+        bot_id: m.botId,
+        bot_name: m.botName,
+        status: m.status,
+        created_at: m.createdAt.toISOString(),
+        meeting_url: m.meetingUrl,
+        duration_seconds: m.durationSeconds,
+        summary: m.summary
+      }))
+
+      return NextResponse.json({ bots: syncedBots, synced: true })
     }
 
     // 1. Fetch from Database with pagination - Filter by authenticated user
