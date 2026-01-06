@@ -1,52 +1,34 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect } from "react"
 import { Calendar, Loader2, CheckCircle, Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { useCalendarEvents } from "@/lib/hooks/use-calendar-events"
 
 interface CalendarConnectButtonProps {
     onConnected?: () => void
 }
 
-interface ConnectedCalendar {
-    uuid: string
-    email: string
-    name: string
-}
-
 export function CalendarConnectButton({ onConnected }: CalendarConnectButtonProps) {
-    const [calendars, setCalendars] = useState<ConnectedCalendar[]>([])
-    const [isLoading, setIsLoading] = useState(true)
+    const { calendars, isLoading } = useCalendarEvents()
     const [isConnecting, setIsConnecting] = useState(false)
 
-    const checkConnection = useCallback(async () => {
-        try {
-            const response = await fetch("/api/calendar/events")
-            const data = await response.json()
-            if (data.calendars && data.calendars.length > 0) {
-                setCalendars(data.calendars)
-                onConnected?.()
-            }
-        } catch {
-            setCalendars([])
-        } finally {
-            setIsLoading(false)
-        }
-    }, [onConnected])
-
     useEffect(() => {
-        // Check URL params for connection status first
+        // Check URL params for connection status
         const params = new URLSearchParams(window.location.search)
         const justConnected = params.get("calendar_connected") === "true"
 
         if (justConnected) {
-            // Clean up URL before checking connection
             window.history.replaceState({}, "", window.location.pathname)
+            onConnected?.()
         }
+    }, [onConnected])
 
-        // Single call to check connection (handles both fresh load and post-connection)
-        checkConnection()
-    }, [checkConnection])
+    useEffect(() => {
+        if (calendars.length > 0) {
+            onConnected?.()
+        }
+    }, [calendars, onConnected])
 
     const handleConnect = () => {
         setIsConnecting(true)

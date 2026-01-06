@@ -1,9 +1,10 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
+import { useState, useMemo } from "react"
 import { Calendar, Video, Loader2, Clock, RefreshCw, ChevronDown } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { useCalendarEvents } from "@/lib/hooks/use-calendar-events"
 import type { CalendarEvent } from "@/lib/api/meetingbaas"
 
 interface UpcomingEventsProps {
@@ -11,15 +12,27 @@ interface UpcomingEventsProps {
 }
 
 export function UpcomingEvents({ onRefresh }: UpcomingEventsProps) {
-    const [events, setEvents] = useState<CalendarEvent[]>([])
-    const [loading, setLoading] = useState(true)
+    const { events, isLoading, isValidating, refresh } = useCalendarEvents()
     const [schedulingEventId, setSchedulingEventId] = useState<string | null>(null)
     const [scheduledEvents, setScheduledEvents] = useState<Set<string>>(new Set())
-    const [showCount, setShowCount] = useState(3) // Start with 3 events
+    const [showCount, setShowCount] = useState(3)
+    const [isRefreshing, setIsRefreshing] = useState(false)
 
-    useEffect(() => {
-        loadEvents()
-    }, [])
+    // Initialize scheduled events from API data
+    useMemo(() => {
+        const scheduled = new Set<string>()
+        events.forEach((event: CalendarEvent) => {
+            if (event.bot_scheduled) {
+                scheduled.add(event.event_id)
+            }
+        })
+        if (scheduled.size > 0) {
+            setScheduledEvents(prev => {
+                const merged = new Set([...prev, ...scheduled])
+                return merged
+            })
+        }
+    }, [events])
 
     // Filter events: show only those where end_time > now (ongoing + future)
     const upcomingEvents = useMemo(() => {
@@ -27,30 +40,18 @@ export function UpcomingEvents({ onRefresh }: UpcomingEventsProps) {
         return events
             .filter((event) => {
                 const endTime = new Date(event.end_time)
-                return endTime > now // Show if not yet ended
+                return endTime > now
             })
             .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
     }, [events])
 
-    async function loadEvents() {
-        setLoading(true)
+    async function handleRefresh() {
+        setIsRefreshing(true)
         try {
-            const response = await fetch("/api/calendar/events?refresh=true")
-            const data = await response.json()
-            setEvents(data.events || [])
-
-            // Mark events that already have bots scheduled (using bot_scheduled from API)
-            const scheduled = new Set<string>()
-            data.events?.forEach((event: CalendarEvent) => {
-                if (event.bot_scheduled) {
-                    scheduled.add(event.event_id)
-                }
-            })
-            setScheduledEvents(scheduled)
-        } catch (error) {
-            console.error("Failed to load events:", error)
+            await refresh()
+            onRefresh?.()
         } finally {
-            setLoading(false)
+            setIsRefreshing(false)
         }
     }
 
@@ -116,7 +117,8 @@ export function UpcomingEvents({ onRefresh }: UpcomingEventsProps) {
         return start <= now && end > now
     }
 
-    if (loading) {
+    // Show loading only on initial load (not on revalidation)
+    if (isLoading && events.length === 0) {
         return (
             <div className="flex items-center justify-center py-8">
                 <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
@@ -129,7 +131,18 @@ export function UpcomingEvents({ onRefresh }: UpcomingEventsProps) {
             <div className="flex flex-col items-center justify-center py-8 text-center">
                 <Calendar className="w-10 h-10 text-muted-foreground mb-3" />
                 <p className="text-muted-foreground">No upcoming meetings with video links</p>
-                <Button variant="ghost" size="sm" onClick={loadEvents} className="mt-2">
+                <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleRefresh}
+                    disabled={isRefreshing}
+                    className="mt-2"
+                >
+                    {isRefreshing ? (
+                        <Loader2 className="w-4 h-4 animate-spin mr-1" />
+                    ) : (
+                        <RefreshCw className="w-4 h-4 mr-1" />
+                    )}
                     Refresh
                 </Button>
             </div>
@@ -204,21 +217,21 @@ export function UpcomingEvents({ onRefresh }: UpcomingEventsProps) {
                 </Button>
             )}
 
-            {/* Refresh button */}
+            {/* Refresh button with background revalidation indicator */}
             <div className="flex justify-center pt-2">
                 <Button
                     variant="ghost"
                     size="sm"
-                    onClick={loadEvents}
-                    disabled={loading}
+                    onClick={handleRefresh}
+                    disabled={isRefreshing}
                     className="gap-1.5 text-muted-foreground hover:text-foreground"
                 >
-                    {loading ? (
+                    {isRefreshing || isValidating ? (
                         <Loader2 className="w-4 h-4 animate-spin" />
                     ) : (
                         <RefreshCw className="w-4 h-4" />
                     )}
-                    Refresh
+                    {isValidating && !isRefreshing ? "Updating..." : "Refresh"}
                 </Button>
             </div>
         </div>
