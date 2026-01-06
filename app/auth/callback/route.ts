@@ -1,7 +1,7 @@
 import { createServerClient } from "@supabase/ssr"
 import { cookies } from "next/headers"
 import { NextRequest, NextResponse } from "next/server"
-import { createCalendarConnection, listCalendars, deleteCalendar } from "@/lib/api/meetingbaas"
+import { createCalendarConnection } from "@/lib/api/meetingbaas"
 import { getGoogleCredentials } from "@/lib/api/google-oauth"
 import { autoScheduleBotsForEvents } from "@/lib/api/auto-schedule"
 import { logger } from "@/lib/logger"
@@ -52,37 +52,8 @@ export async function GET(request: NextRequest) {
 
                     // Only attempt connection if we have Google OAuth credentials configured
                     if (clientId && clientSecret) {
-                        // PROACTIVE CLEANUP: Delete existing Google calendars first
-                        log.info("Checking for existing calendars to cleanup")
-                        try {
-                            const existingCalendars = await listCalendars()
-                            log.info("Found existing calendars", { count: existingCalendars.length })
-
-                            for (const cal of existingCalendars) {
-                                if (cal.calendar_platform === 'google') {
-                                    log.info("Deleting existing calendar", { calendar_id: cal.calendar_id })
-                                    try {
-                                        await deleteCalendar(cal.calendar_id)
-                                        await new Promise(resolve => setTimeout(resolve, 1500))
-                                    } catch (delErr) {
-                                        log.warn("Failed to delete calendar", {
-                                            calendar_id: cal.calendar_id,
-                                            error: delErr instanceof Error ? delErr.message : String(delErr)
-                                        })
-                                    }
-                                }
-                            }
-
-                            if (existingCalendars.filter(c => c.calendar_platform === 'google').length > 0) {
-                                await new Promise(resolve => setTimeout(resolve, 2000))
-                            }
-                        } catch (listErr) {
-                            log.debug("No existing calendars or error listing", {
-                                error: listErr instanceof Error ? listErr.message : String(listErr)
-                            })
-                        }
-
-                        // Now create the calendar connection
+                        // Support multiple calendars - no cleanup needed
+                        // Create the calendar connection
                         log.info("Creating calendar connection")
                         const calendar = await createCalendarConnection({
                             oauthClientId: clientId,

@@ -46,42 +46,8 @@ export async function GET(request: NextRequest) {
             return NextResponse.redirect(`${origin}/?error=missing_google_credentials`)
         }
 
-        // PROACTIVE CLEANUP: Delete any existing Google calendars for THIS USER before creating new one
-        // This fixes duplicate calendar issues and ensures a clean state for the current user
-        log.info("Checking for existing calendar connections to cleanup")
-        try {
-            const existingCalendars = await listCalendars()
-            log.info("Found existing calendars", { count: existingCalendars.length })
-
-            // Delete ALL existing Google calendars proactively
-            // Note: In a multi-user environment, this should be scoped to the current user
-            for (const cal of existingCalendars) {
-                if (cal.calendar_platform === 'google') {
-                    log.info("Deleting existing calendar", { calendar_id: cal.calendar_id, email: cal.account_email })
-                    try {
-                        await deleteCalendar(cal.calendar_id)
-                        // Rate limit pause between deletions
-                        await new Promise(resolve => setTimeout(resolve, 1500))
-                    } catch (delErr) {
-                        log.warn("Failed to delete calendar", {
-                            calendar_id: cal.calendar_id,
-                            error: delErr instanceof Error ? delErr.message : String(delErr)
-                        })
-                        // Continue with other deletions
-                    }
-                }
-            }
-
-            if (existingCalendars.filter(c => c.calendar_platform === 'google').length > 0) {
-                // Extra pause after cleanup before creating new connection
-                log.debug("Waiting after cleanup before creating new connection")
-                await new Promise(resolve => setTimeout(resolve, 2000))
-            }
-        } catch (listErr) {
-            log.debug("No existing calendars or error listing (this is OK)", {
-                error: listErr instanceof Error ? listErr.message : String(listErr)
-            })
-        }
+        // Support multiple calendars - no longer delete existing calendars
+        // Each user can connect multiple Google accounts (personal + work)
 
         // Create calendar connection in MeetingBaas
         log.info("Creating calendar connection in MeetingBaas")
