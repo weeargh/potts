@@ -201,13 +201,15 @@ interface BotCompletedData {
     bot_id: string
     transcription?: string      // Processed transcript URL (utterances)
     raw_transcription?: string  // Raw Gladia response URL
-    mp4?: string                // Video URL
+    video?: string              // Video URL (MeetingBaas sends 'video' not 'mp4')
+    mp4?: string                // Legacy field name
     audio?: string              // Audio URL
     diarization?: string        // Diarization URL
     duration_seconds?: number
-    participants?: string[]
-    speakers?: string[]
-    extra?: Record<string, unknown>
+    event_id?: string           // Calendar event ID (if scheduled via calendar)
+    participants?: Array<{ id: string | null; name: string }>  // Participant objects
+    speakers?: Array<{ id: string | null; name: string }>
+    extra?: Record<string, unknown>  // NOTE: MeetingBaas may NOT return this in webhooks!
 }
 
 /**
@@ -223,57 +225,71 @@ async function handleBotCompleted(data: BotCompletedData) {
     // DEBUG: Log the full payload to see what MeetingBaas actually sends
     webhookLogger.info("Processing bot.completed event - FULL PAYLOAD", {
         bot_id,
+        event_id: data.event_id,
         has_extra: !!data.extra,
         extra_keys: data.extra ? Object.keys(data.extra) : [],
-        extra_user_id: data.extra?.user_id,
-        extra_calendar_id: data.extra?.calendar_id,
         has_transcription: !!data.transcription,
+        has_video: !!data.video,
         has_mp4: !!data.mp4,
-        participants: data.participants,
+        participant_count: data.participants?.length,
     })
 
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/74db1504-71c7-4e46-b851-eb31403ad8ad', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            sessionId: 'debug-session',
-            runId: 'initial',
-            hypothesisId: 'H2',
-            location: 'app/api/webhooks/meetingbaas/route.ts:181',
-            message: 'handleBotCompleted start',
-            data: {
-                bot_id,
-                has_extra: !!data.extra,
-                has_user_id: !!(data.extra && (data.extra as Record<string, unknown>).user_id),
-                has_calendar_id: !!(data.extra && (data.extra as Record<string, unknown>).calendar_id),
-            },
-            timestamp: Date.now(),
-        }),
-    }).catch(() => {})
-    // #endregion
-
     try {
-        // 1. Extract userId from extra (passed when bot was created)
-        let userId = await extractUserId(data.extra)
+        // STRATEGY: MeetingBaas does NOT return 'extra' field in webhooks!
+        // We MUST look up the existing Meeting record by bot_id first.
+        // The Meeting record was created either:
+        // 1. When user created bot via POST /api/bots
+        // 2. When calendar auto-scheduled the bot
 
-        // 2. Find or create meeting record (we may need this even if userId is missing)
+        // 1. First, try to find existing meeting record by bot_id
         let meeting = await prisma.meeting.findUnique({
             where: { botId: bot_id }
         })
 
-        // 2a. Fallback: if we could not resolve userId from webhook extra,
-        // but we have an existing meeting row, trust meeting.userId.
-        if (!userId && meeting?.userId) {
-            webhookLogger.info("Resolved user via existing meeting record", {
+        let userId: string | null = null
+
+        if (meeting) {
+            // Found existing meeting - use its userId
+            userId = meeting.userId
+            webhookLogger.info("Found existing meeting record", {
                 bot_id,
                 meeting_id: meeting.id,
+                user_id: userId,
             })
-            userId = meeting.userId
+        } else {
+            // No meeting record - try to extract userId from extra (unlikely to work)
+            webhookLogger.warn("No existing meeting record found for bot", { bot_id })
+            userId = await extractUserId(data.extra)
+
+            // Also try to look up via event_id if this was a calendar-scheduled bot
+            if (!userId && data.event_id) {
+                webhookLogger.info("Attempting to find user via event_id", { event_id: data.event_id })
+                // Look up any meeting with this event_id in extra
+                const meetingByEvent = await prisma.meeting.findFirst({
+                    where: {
+                        extra: {
+                            path: ['event_id'],
+                            equals: data.event_id
+                        }
+                    }
+                })
+                if (meetingByEvent) {
+                    userId = meetingByEvent.userId
+                    meeting = meetingByEvent
+                    webhookLogger.info("Found meeting via event_id lookup", {
+                        bot_id,
+                        event_id: data.event_id,
+                        meeting_id: meetingByEvent.id,
+                    })
+                }
+            }
         }
 
         if (!userId) {
-            webhookLogger.error("Cannot process bot - no user_id in extra or existing meeting", undefined, { bot_id })
+            webhookLogger.error("Cannot process bot - no existing meeting and no user_id in extra", undefined, {
+                bot_id,
+                event_id: data.event_id,
+            })
             return
         }
 
@@ -400,6 +416,7 @@ async function handleBotCompleted(data: BotCompletedData) {
         }
 
         // 5. Store participants if provided
+        // Note: MeetingBaas sends participants as objects {id, name}, not strings
         if (data.participants && data.participants.length > 0) {
             await prisma.meeting.update({
                 where: { id: meeting.id },
@@ -409,9 +426,9 @@ async function handleBotCompleted(data: BotCompletedData) {
             // Create participant records
             await prisma.participant.deleteMany({ where: { meetingId: meeting.id } })
             await prisma.participant.createMany({
-                data: data.participants.map(name => ({
+                data: data.participants.map(p => ({
                     meetingId: meeting.id,
-                    name,
+                    name: typeof p === 'string' ? p : p.name,  // Handle both formats
                 }))
             })
         }
@@ -474,7 +491,7 @@ async function handleBotCompleted(data: BotCompletedData) {
             where: { id: meeting.id },
             data: {
                 processingStatus: "completed",
-                videoUrl: data.mp4,
+                videoUrl: data.video || data.mp4,  // MeetingBaas sends 'video', not 'mp4'
                 audioUrl: data.audio,
                 transcriptUrl: data.transcription,
                 diarizationUrl: data.diarization,
