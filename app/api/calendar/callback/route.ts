@@ -96,7 +96,18 @@ export async function GET(request: NextRequest) {
             await ensureUserExists(user)
         }
 
-        if (user && calendar.account_email) {
+        // Determine email to use: prefer calendar's account_email, fallback to user email
+        const calendarEmail = calendar?.account_email || user?.email || ""
+        log.debug("Calendar save details", {
+            has_user: !!user,
+            has_calendar: !!calendar,
+            calendar_id: calendar?.calendar_id,
+            account_email: calendar?.account_email,
+            user_email: user?.email,
+            calendarEmail
+        })
+
+        if (user && calendar?.calendar_id) {
             // Store calendar connection in Supabase with encrypted tokens
             const expiresAt = new Date(Date.now() + tokens.expires_in * 1000)
 
@@ -104,10 +115,11 @@ export async function GET(request: NextRequest) {
             const encryptedAccessToken = encrypt(tokens.access_token)
             const encryptedRefreshToken = encrypt(tokens.refresh_token)
 
+            log.info("Saving calendar to database", { calendar_id: calendar.calendar_id, email: calendarEmail })
             const { error: dbError } = await supabase.from("calendar_accounts").upsert({
                 user_id: user.id,
                 provider: "google",
-                email: calendar.account_email,
+                email: calendarEmail,
                 access_token: encryptedAccessToken,
                 refresh_token: encryptedRefreshToken,
                 expires_at: expiresAt.toISOString(),

@@ -1,7 +1,7 @@
 import { createServerClient } from "@supabase/ssr"
 import { cookies } from "next/headers"
 import { NextRequest, NextResponse } from "next/server"
-import { createCalendarConnection } from "@/lib/api/meetingbaas"
+import { createCalendarConnection, listCalendars } from "@/lib/api/meetingbaas"
 import { getGoogleCredentials } from "@/lib/api/google-oauth"
 import { autoScheduleBotsForEvents } from "@/lib/api/auto-schedule"
 import { logger } from "@/lib/logger"
@@ -52,44 +52,79 @@ export async function GET(request: NextRequest) {
 
                     // Only attempt connection if we have Google OAuth credentials configured
                     if (clientId && clientSecret) {
-                        // Support multiple calendars - no cleanup needed
-                        // Create the calendar connection
-                        log.info("Creating calendar connection")
-                        const calendar = await createCalendarConnection({
-                            oauthClientId: clientId,
-                            oauthClientSecret: clientSecret,
-                            oauthRefreshToken: providerRefreshToken,
-                            platform: "google",
-                        })
-                        log.info("Calendar connected successfully", { calendar_id: calendar.calendar_id })
-                        calendarConnected = true
+                        let calendar
 
-                        // Store in Supabase for reference
-                        const { data: { user } } = await supabase.auth.getUser()
-                        if (user && providerToken) {
-                            await supabase.from("calendar_accounts").upsert({
-                                user_id: user.id,
-                                provider: "google",
-                                email: user.email || "",
-                                access_token: providerToken,
-                                refresh_token: providerRefreshToken,
-                                expires_at: new Date(Date.now() + 3600 * 1000).toISOString(),
-                                scope: "calendar.readonly calendar.events.readonly",
-                                is_active: true,
-                                meetingbaas_calendar_id: calendar.calendar_id,
-                            }, {
-                                onConflict: "user_id,provider,email",
+                        // Try to create calendar connection, handle "already exists" gracefully
+                        try {
+                            log.info("Creating calendar connection")
+                            calendar = await createCalendarConnection({
+                                oauthClientId: clientId,
+                                oauthClientSecret: clientSecret,
+                                oauthRefreshToken: providerRefreshToken,
+                                platform: "google",
                             })
+                            log.info("Calendar connected successfully", { calendar_id: calendar.calendar_id })
+                        } catch (createErr) {
+                            const errorMessage = createErr instanceof Error ? createErr.message : String(createErr)
+
+                            // Handle "already exists" - fetch existing calendars
+                            if (errorMessage.includes("already exists")) {
+                                log.info("Calendar already exists in MeetingBaas, fetching existing")
+                                const existingCalendars = await listCalendars()
+                                if (existingCalendars.length > 0) {
+                                    // Use the most recent calendar
+                                    calendar = existingCalendars[existingCalendars.length - 1]
+                                    log.info("Using existing calendar", { calendar_id: calendar?.calendar_id })
+                                }
+                            } else {
+                                throw createErr
+                            }
                         }
 
-                        // AUTO-SCHEDULE: Schedule bots for all upcoming meetings
-                        log.info("Auto-scheduling bots for upcoming meetings")
-                        const autoScheduleResult = await autoScheduleBotsForEvents(calendar.calendar_id)
-                        log.info("Auto-schedule complete", {
-                            scheduled: autoScheduleResult.scheduled,
-                            failed: autoScheduleResult.failed,
-                            skipped: autoScheduleResult.skipped
-                        })
+                        if (calendar?.calendar_id) {
+                            calendarConnected = true
+
+                            // Store in Supabase for reference
+                            const { data: { user } } = await supabase.auth.getUser()
+                            const calendarEmail = calendar.account_email || user?.email || ""
+
+                            log.info("Saving calendar to database", {
+                                calendar_id: calendar.calendar_id,
+                                email: calendarEmail,
+                                user_id: user?.id
+                            })
+
+                            if (user && providerToken) {
+                                const { error: dbError } = await supabase.from("calendar_accounts").upsert({
+                                    user_id: user.id,
+                                    provider: "google",
+                                    email: calendarEmail,
+                                    access_token: providerToken,
+                                    refresh_token: providerRefreshToken,
+                                    expires_at: new Date(Date.now() + 3600 * 1000).toISOString(),
+                                    scope: "calendar.readonly calendar.events.readonly",
+                                    is_active: true,
+                                    meetingbaas_calendar_id: calendar.calendar_id,
+                                }, {
+                                    onConflict: "user_id,provider,email",
+                                })
+
+                                if (dbError) {
+                                    log.error("Failed to save calendar to DB", undefined, { error: dbError.message })
+                                } else {
+                                    log.info("Calendar saved to database successfully")
+                                }
+                            }
+
+                            // AUTO-SCHEDULE: Schedule bots for all upcoming meetings
+                            log.info("Auto-scheduling bots for upcoming meetings")
+                            const autoScheduleResult = await autoScheduleBotsForEvents(calendar.calendar_id)
+                            log.info("Auto-schedule complete", {
+                                scheduled: autoScheduleResult.scheduled,
+                                failed: autoScheduleResult.failed,
+                                skipped: autoScheduleResult.skipped
+                            })
+                        }
                     }
                 }
             } catch (err) {
