@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { exchangeCodeForTokens, getGoogleCredentials } from "@/lib/api/google-oauth"
-import { createCalendarConnection, listCalendars, deleteCalendar } from "@/lib/api/meetingbaas"
+import { createCalendarConnection, listCalendars } from "@/lib/api/meetingbaas"
 import { createClient } from "@/lib/supabase/server"
+import { prisma } from "@/lib/prisma"
 import { encrypt } from "@/lib/crypto"
 import { ensureUserExists } from "@/lib/utils/ensure-user"
 import { logger } from "@/lib/logger"
@@ -116,22 +117,40 @@ export async function GET(request: NextRequest) {
             const encryptedRefreshToken = encrypt(tokens.refresh_token)
 
             log.info("Saving calendar to database", { calendar_id: calendar.calendar_id, email: calendarEmail })
-            const { error: dbError } = await supabase.from("calendar_accounts").upsert({
-                user_id: user.id,
-                provider: "google",
-                email: calendarEmail,
-                access_token: encryptedAccessToken,
-                refresh_token: encryptedRefreshToken,
-                expires_at: expiresAt.toISOString(),
-                scope: tokens.scope,
-                is_active: true,
-                meetingbaas_calendar_id: calendar.calendar_id,
-            }, {
-                onConflict: "user_id,provider,email",
-            })
 
-            if (dbError) {
-                log.error("Supabase DB error", undefined, { error: dbError.message })
+            // Use Prisma instead of Supabase client to bypass RLS
+            try {
+                await prisma.calendarAccount.upsert({
+                    where: {
+                        userId_provider_email: {
+                            userId: user.id,
+                            provider: "google",
+                            email: calendarEmail,
+                        }
+                    },
+                    update: {
+                        accessToken: encryptedAccessToken,
+                        refreshToken: encryptedRefreshToken,
+                        expiresAt: expiresAt,
+                        scope: tokens.scope,
+                        isActive: true,
+                        meetingbaasCalendarId: calendar.calendar_id,
+                    },
+                    create: {
+                        userId: user.id,
+                        provider: "google",
+                        email: calendarEmail,
+                        accessToken: encryptedAccessToken,
+                        refreshToken: encryptedRefreshToken,
+                        expiresAt: expiresAt,
+                        scope: tokens.scope,
+                        isActive: true,
+                        meetingbaasCalendarId: calendar.calendar_id,
+                    }
+                })
+                log.info("Calendar saved to database successfully")
+            } catch (dbError) {
+                log.error("Database error saving calendar", dbError instanceof Error ? dbError : undefined)
             }
         }
 

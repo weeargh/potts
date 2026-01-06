@@ -4,6 +4,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { createCalendarConnection, listCalendars } from "@/lib/api/meetingbaas"
 import { getGoogleCredentials } from "@/lib/api/google-oauth"
 import { autoScheduleBotsForEvents } from "@/lib/api/auto-schedule"
+import { prisma } from "@/lib/prisma"
+import { encrypt } from "@/lib/crypto"
 import { logger } from "@/lib/logger"
 
 const log = logger.child('auth:callback')
@@ -95,24 +97,43 @@ export async function GET(request: NextRequest) {
                             })
 
                             if (user && providerToken) {
-                                const { error: dbError } = await supabase.from("calendar_accounts").upsert({
-                                    user_id: user.id,
-                                    provider: "google",
-                                    email: calendarEmail,
-                                    access_token: providerToken,
-                                    refresh_token: providerRefreshToken,
-                                    expires_at: new Date(Date.now() + 3600 * 1000).toISOString(),
-                                    scope: "calendar.readonly calendar.events.readonly",
-                                    is_active: true,
-                                    meetingbaas_calendar_id: calendar.calendar_id,
-                                }, {
-                                    onConflict: "user_id,provider,email",
-                                })
+                                // Use Prisma instead of Supabase client to bypass RLS
+                                const expiresAt = new Date(Date.now() + 3600 * 1000)
+                                const encryptedAccessToken = encrypt(providerToken)
+                                const encryptedRefreshToken = encrypt(providerRefreshToken)
 
-                                if (dbError) {
-                                    log.error("Failed to save calendar to DB", undefined, { error: dbError.message })
-                                } else {
+                                try {
+                                    await prisma.calendarAccount.upsert({
+                                        where: {
+                                            userId_provider_email: {
+                                                userId: user.id,
+                                                provider: "google",
+                                                email: calendarEmail,
+                                            }
+                                        },
+                                        update: {
+                                            accessToken: encryptedAccessToken,
+                                            refreshToken: encryptedRefreshToken,
+                                            expiresAt: expiresAt,
+                                            scope: "calendar.readonly calendar.events.readonly",
+                                            isActive: true,
+                                            meetingbaasCalendarId: calendar.calendar_id,
+                                        },
+                                        create: {
+                                            userId: user.id,
+                                            provider: "google",
+                                            email: calendarEmail,
+                                            accessToken: encryptedAccessToken,
+                                            refreshToken: encryptedRefreshToken,
+                                            expiresAt: expiresAt,
+                                            scope: "calendar.readonly calendar.events.readonly",
+                                            isActive: true,
+                                            meetingbaasCalendarId: calendar.calendar_id,
+                                        }
+                                    })
                                     log.info("Calendar saved to database successfully")
+                                } catch (dbError) {
+                                    log.error("Database error saving calendar", dbError instanceof Error ? dbError : undefined)
                                 }
                             }
 
