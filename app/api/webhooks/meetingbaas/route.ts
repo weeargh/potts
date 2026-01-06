@@ -94,6 +94,25 @@ async function processWebhook(payload: { event: string; data: unknown }, log: ty
     const event = payload.event
     const data = payload.data as Record<string, unknown>
 
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/74db1504-71c7-4e46-b851-eb31403ad8ad', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            sessionId: 'debug-session',
+            runId: 'initial',
+            hypothesisId: 'H1',
+            location: 'app/api/webhooks/meetingbaas/route.ts:94',
+            message: 'processWebhook entry',
+            data: {
+                event,
+                bot_id: data?.bot_id,
+            },
+            timestamp: Date.now(),
+        }),
+    }).catch(() => {})
+    // #endregion
+
     log.info(`Webhook received: ${event}`, {
         bot_id: data?.bot_id,
         status: (data?.status as { code?: string })?.code || data?.error_code
@@ -181,18 +200,50 @@ async function handleBotCompleted(data: BotCompletedData) {
     const { bot_id } = data
     webhookLogger.info("Processing bot.completed event", { bot_id })
 
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/74db1504-71c7-4e46-b851-eb31403ad8ad', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            sessionId: 'debug-session',
+            runId: 'initial',
+            hypothesisId: 'H2',
+            location: 'app/api/webhooks/meetingbaas/route.ts:181',
+            message: 'handleBotCompleted start',
+            data: {
+                bot_id,
+                has_extra: !!data.extra,
+                has_user_id: !!(data.extra && (data.extra as Record<string, unknown>).user_id),
+                has_calendar_id: !!(data.extra && (data.extra as Record<string, unknown>).calendar_id),
+            },
+            timestamp: Date.now(),
+        }),
+    }).catch(() => {})
+    // #endregion
+
     try {
         // 1. Extract userId from extra (passed when bot was created)
-        const userId = await extractUserId(data.extra)
-        if (!userId) {
-            webhookLogger.error("Cannot process bot - no user_id in extra", undefined, { bot_id })
-            return
-        }
+        let userId = await extractUserId(data.extra)
 
-        // 2. Find or create meeting record
+        // 2. Find or create meeting record (we may need this even if userId is missing)
         let meeting = await prisma.meeting.findUnique({
             where: { botId: bot_id }
         })
+
+        // 2a. Fallback: if we could not resolve userId from webhook extra,
+        // but we have an existing meeting row, trust meeting.userId.
+        if (!userId && meeting?.userId) {
+            webhookLogger.info("Resolved user via existing meeting record", {
+                bot_id,
+                meeting_id: meeting.id,
+            })
+            userId = meeting.userId
+        }
+
+        if (!userId) {
+            webhookLogger.error("Cannot process bot - no user_id in extra or existing meeting", undefined, { bot_id })
+            return
+        }
 
         if (!meeting) {
             webhookLogger.info("Creating meeting record from webhook", { bot_id })
@@ -427,6 +478,23 @@ async function handleBotCompleted(data: BotCompletedData) {
 async function extractUserId(extra?: Record<string, unknown>): Promise<string | null> {
     // Primary: Get from extra (new bots always pass this)
     if (extra?.user_id && typeof extra.user_id === 'string') {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/74db1504-71c7-4e46-b851-eb31403ad8ad', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                sessionId: 'debug-session',
+                runId: 'initial',
+                hypothesisId: 'H5',
+                location: 'app/api/webhooks/meetingbaas/route.ts:429',
+                message: 'extractUserId from extra.user_id',
+                data: {
+                    has_extra: !!extra,
+                },
+                timestamp: Date.now(),
+            }),
+        }).catch(() => {})
+        // #endregion
         return extra.user_id
     }
 
@@ -439,6 +507,26 @@ async function extractUserId(extra?: Record<string, unknown>): Promise<string | 
         })
         if (calendarAccount) {
             webhookLogger.info("Resolved user via calendar_id", { calendar_id: calendarId })
+
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/74db1504-71c7-4e46-b851-eb31403ad8ad', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    sessionId: 'debug-session',
+                    runId: 'initial',
+                    hypothesisId: 'H6',
+                    location: 'app/api/webhooks/meetingbaas/route.ts:441',
+                    message: 'extractUserId via calendar_id lookup',
+                    data: {
+                        calendar_id: calendarId,
+                        resolved_user: true,
+                    },
+                    timestamp: Date.now(),
+                }),
+            }).catch(() => {})
+            // #endregion
+
             return calendarAccount.userId
         }
     }
@@ -449,6 +537,26 @@ async function extractUserId(extra?: Record<string, unknown>): Promise<string | 
         has_extra: !!extra,
         has_calendar_id: !!calendarId
     })
+
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/74db1504-71c7-4e46-b851-eb31403ad8ad', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            sessionId: 'debug-session',
+            runId: 'initial',
+            hypothesisId: 'H7',
+            location: 'app/api/webhooks/meetingbaas/route.ts:448',
+            message: 'extractUserId failed to resolve user',
+            data: {
+                has_extra: !!extra,
+                has_calendar_id: !!calendarId,
+            },
+            timestamp: Date.now(),
+        }),
+    }).catch(() => {})
+    // #endregion
+
     return null
 }
 
