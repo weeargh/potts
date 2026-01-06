@@ -14,18 +14,18 @@ export function MeetingListItem({ meeting, className }: MeetingListItemProps) {
     <Link href={`/meetings/${meeting.bot_id}`}>
       <div
         className={cn(
-          "flex items-center gap-4 px-6 py-4 hover:bg-muted/30 transition-colors cursor-pointer group",
+          "flex items-center gap-3 md:gap-4 px-4 md:px-6 py-4 hover:bg-muted/30 transition-colors cursor-pointer group",
           className
         )}
       >
         {/* Time */}
-        <div className="flex flex-col items-start min-w-[80px]">
+        <div className="flex flex-col items-start min-w-[60px] md:min-w-[80px]">
           <span className="text-sm font-medium text-foreground">{formatTime(meeting.created_at)}</span>
         </div>
 
         {/* Main Content */}
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-3 mb-1">
+          <div className="flex items-center gap-2 md:gap-3 mb-1">
             <h3 className="text-sm font-semibold text-foreground truncate group-hover:text-primary transition-colors">{meeting.bot_name}</h3>
             <StatusBadge status={meeting.status} />
           </div>
