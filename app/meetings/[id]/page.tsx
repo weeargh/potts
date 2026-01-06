@@ -81,13 +81,13 @@ export default function MeetingPage({ params }: MeetingPageProps) {
         </div>
       </div>
 
-      {/* Content - Two Column Layout */}
-      <div className="flex-1 overflow-hidden flex">
+      {/* Content - Responsive Layout */}
+      <div className="flex-1 overflow-auto md:overflow-hidden flex flex-col-reverse md:flex-row">
         {/* Left: Summary, Insights, ToDos, Q&A, Transcript */}
-        <div className="flex-1 overflow-y-auto bg-background p-8">
-          <div className="max-w-2xl space-y-6">
+        <div className="flex-1 overflow-y-auto bg-background p-4 md:p-8">
+          <div className="max-w-2xl space-y-6 mx-auto md:mx-0">
             {/* Summary Card */}
-            <section className="bg-card border border-border rounded-lg p-6">
+            <section className="bg-card border border-border rounded-lg p-4 md:p-6">
               <h2 className="text-sm font-semibold text-foreground mb-4 uppercase tracking-wide">
                 Meeting Summary
               </h2>
@@ -106,7 +106,7 @@ export default function MeetingPage({ params }: MeetingPageProps) {
 
             {/* Key Topics */}
             {summary?.keyPoints && summary.keyPoints.length > 0 && (
-              <section className="bg-card border border-border rounded-lg p-6">
+              <section className="bg-card border border-border rounded-lg p-4 md:p-6">
                 <h2 className="text-sm font-semibold text-foreground mb-4 uppercase tracking-wide">
                   Key Points
                 </h2>
@@ -124,7 +124,7 @@ export default function MeetingPage({ params }: MeetingPageProps) {
             )}
 
             {/* Action Items / To-Do */}
-            <section className="bg-card border border-border rounded-lg p-6">
+            <section className="bg-card border border-border rounded-lg p-4 md:p-6">
               <h2 className="text-sm font-semibold text-foreground mb-4 uppercase tracking-wide">
                 Action Items
               </h2>
@@ -161,7 +161,7 @@ export default function MeetingPage({ params }: MeetingPageProps) {
             </section>
 
             {/* AI Q&A Section */}
-            <section className="bg-card border border-border rounded-lg p-6">
+            <section className="bg-card border border-border rounded-lg p-4 md:p-6">
               <h2 className="text-sm font-semibold text-foreground mb-4 uppercase tracking-wide">
                 Ask AI about this meeting
               </h2>
@@ -182,7 +182,7 @@ export default function MeetingPage({ params }: MeetingPageProps) {
             </section>
 
             {/* Transcript - Collapsible */}
-            <section className="bg-card border border-border rounded-lg p-6">
+            <section className="bg-card border border-border rounded-lg p-4 md:p-6">
               <button
                 onClick={() => setExpandedTranscript(!expandedTranscript)}
                 className="w-full flex items-center justify-between mb-4 hover:opacity-80 transition-opacity"
@@ -223,8 +223,15 @@ export default function MeetingPage({ params }: MeetingPageProps) {
         </div>
 
         {/* Right: Video Player (Secondary) */}
-        <div className="w-96 border-l border-border bg-background flex flex-col p-8">
-          <div className="bg-card border border-border rounded-lg overflow-hidden">
+        {/* On Mobile: It appears at top (flex-col-reverse makes content bottom, video top in code structure but visual order depends) */}
+        {/* Actually flex-col-reverse means BOTTOM item is visually TOP. 
+            So: 
+            Desktop: Row. Left = Summary, Right = Video.
+            Mobile: Col-reverse. Bottom DOM (Video) = TOP visual? No, col-reverse means last item is top. 
+            So Video (last in DOM) will be TOP on mobile.
+        */}
+        <div className="w-full md:w-96 border-b md:border-b-0 md:border-l border-border bg-background flex flex-col p-4 md:p-8 md:h-full md:overflow-y-auto">
+          <div className="bg-card border border-border rounded-lg overflow-hidden sticky top-0 md:static">
             <div className="aspect-video bg-black/90 relative group">
               {meeting.video ? (
                 <video
@@ -250,7 +257,7 @@ export default function MeetingPage({ params }: MeetingPageProps) {
             </div>
 
             {/* Video Info */}
-            <div className="p-6 border-t border-border space-y-3">
+            <div className="p-4 md:p-6 border-t border-border space-y-3">
               <div>
                 <p className="text-xs font-medium text-muted-foreground uppercase mb-1">Duration</p>
                 <p className="text-sm font-semibold text-foreground">

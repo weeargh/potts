@@ -7,7 +7,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex h-screen overflow-hidden bg-background">
       {/* Desktop Sidebar */}
-      <div className="hidden md:block w-64 border-r border-border bg-card">
+      <div className="hidden md:block w-64 bg-card">
         <AppSidebar />
       </div>
 

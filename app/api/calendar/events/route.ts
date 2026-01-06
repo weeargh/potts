@@ -29,32 +29,44 @@ export async function GET(request: NextRequest) {
     const forceRefresh = searchParams.get("refresh") === "true"
 
     try {
-        // If no calendar_id provided, return empty
-        // We'll focus caching on specific calendar fetching for now
+        // Fetch user's connected calendar accounts to enforce ownership
+        const userCalendarAccounts = await prisma.calendarAccount.findMany({
+            where: { userId: user.id },
+            select: { meetingbaasCalendarId: true }
+        })
+        const userCalendarIds = new Set(userCalendarAccounts.map(c => c.meetingbaasCalendarId).filter(Boolean) as string[])
+
+        // Case 1: List all calendars (filtered by ownership)
         if (!calendarId) {
             let calendars: Awaited<ReturnType<typeof listCalendars>> = []
             try {
-                calendars = await listCalendars()
-                log.debug("MeetingBaas calendars fetched", { count: calendars.length, ids: calendars.map(c => c.calendar_id) })
+                // Fetch ALL calendars from MeetingBaas (API doesn't support filtering by user tags yet)
+                const allCalendars = await listCalendars()
+
+                // SECURITY: Filter to ONLY return calendars owned by this user
+                calendars = allCalendars.filter(cal => userCalendarIds.has(cal.calendar_id))
+
+                log.debug("Calendars fetched and filtered", {
+                    total_from_api: allCalendars.length,
+                    user_owned: calendars.length
+                })
             } catch (err) {
                 log.debug("No calendars connected or MeetingBaas error", { error: err instanceof Error ? err.message : String(err) })
                 return NextResponse.json({ events: [], calendars: [], message: "No calendars connected" })
             }
 
             if (calendars.length === 0) {
-                log.debug("No calendars found on MeetingBaas")
                 return NextResponse.json({ events: [], calendars: [], message: "No calendars connected" })
             }
 
-            // Map calendars to frontend format first (so we always return them)
+            // Map calendars to frontend format
             const mappedCalendars = calendars.map(cal => ({
                 uuid: cal.calendar_id,
                 email: cal.account_email,
                 name: cal.account_email.split('@')[0] || 'Calendar',
             }))
-            log.debug("Mapped calendars for frontend", { calendars: mappedCalendars })
 
-            // For "all calendars", fetch events but don't fail if events fetching fails
+            // Fetch events only for these authorized calendars
             let events: { meeting_url?: string; start_time: string }[] = []
             try {
                 const allEvents = await Promise.all(
@@ -75,11 +87,8 @@ export async function GET(request: NextRequest) {
                     .filter((e: { meeting_url?: string }) => e.meeting_url)
                     .sort((a: { start_time: string }, b: { start_time: string }) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
             } catch (eventsErr) {
-                log.error("Failed to fetch events (returning calendars anyway)", eventsErr instanceof Error ? eventsErr : undefined)
+                log.error("Failed to fetch events", eventsErr instanceof Error ? eventsErr : undefined)
             }
-
-            // Note: Bot scheduling is now handled by calendar.event_created webhooks
-            // The background auto-scheduler was removed as it's unreliable in serverless environments
 
             return NextResponse.json({
                 events,
@@ -89,6 +98,19 @@ export async function GET(request: NextRequest) {
                     'Cache-Control': 'private, max-age=300, stale-while-revalidate=600'
                 }
             })
+        }
+
+        // Case 2: Fetch events for specific calendar (with ownership check)
+        // SECURITY: Verify user owns this calendar
+        if (!userCalendarIds.has(calendarId)) {
+            log.warn("Unauthorized access attempt to calendar", {
+                user_id: user.id,
+                target_calendar_id: calendarId
+            })
+            return NextResponse.json(
+                { error: "Unauthorized access to calendar" },
+                { status: 403 }
+            )
         }
 
         // Get events for specific calendar with caching

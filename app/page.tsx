@@ -106,66 +106,68 @@ export default function Dashboard() {
       </div>
 
       {/* Search and Filters */}
-      <div className="border-b border-border px-8 py-4 bg-background">
-        <div className="flex gap-4 items-center">
-          <div className="flex-1 relative">
+      <div className="border-b border-border px-4 md:px-8 py-4 bg-background">
+        <div className="flex flex-col md:flex-row gap-4 md:items-center">
+          <div className="flex-1 relative w-full">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
               placeholder="Search meetings, transcripts..."
-              className="pl-10"
+              className="pl-10 w-full"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
 
-          <div className="flex gap-2">
-            {["all", "recent", "shared", "archived"].map((filter) => (
-              <button
-                key={filter}
-                onClick={() => setSelectedFilter(filter)}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${selectedFilter === filter
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted text-foreground hover:bg-border"
-                  }`}
-              >
-                {filter.charAt(0).toUpperCase() + filter.slice(1)}
-              </button>
-            ))}
-          </div>
+          <div className="flex flex-col sm:flex-row gap-4 w-full md:w-auto">
+            <div className="flex overflow-x-auto pb-2 md:pb-0 gap-2 no-scrollbar w-full md:w-auto mask-fade-right">
+              {["all", "recent", "shared", "archived"].map((filter) => (
+                <button
+                  key={filter}
+                  onClick={() => setSelectedFilter(filter)}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors flex-shrink-0 ${selectedFilter === filter
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted text-foreground hover:bg-border"
+                    }`}
+                >
+                  {filter.charAt(0).toUpperCase() + filter.slice(1)}
+                </button>
+              ))}
+            </div>
 
-          {/* Status Toggle and Show All */}
-          <div className="flex items-center gap-4">
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <input
-                type="checkbox"
-                checked={showOnlyCompleted}
-                onChange={(e) => setShowOnlyCompleted(e.target.checked)}
-                className="w-4 h-4 rounded border-border"
-              />
-              <span className="text-muted-foreground">Only Completed</span>
-            </label>
-            {!showAll && filteredMeetings.length > 5 && (
-              <button
-                onClick={() => {
-                  setShowAll(true)
-                  setShowOnlyCompleted(false)
-                }}
-                className="text-sm text-primary hover:underline"
-              >
-                Show All ({filteredMeetings.length})
-              </button>
-            )}
-            {showAll && (
-              <button
-                onClick={() => {
-                  setShowAll(false)
-                  setShowOnlyCompleted(true)
-                }}
-                className="text-sm text-muted-foreground hover:text-foreground"
-              >
-                Show Less
-              </button>
-            )}
+            {/* Status Toggle and Show All */}
+            <div className="flex items-center gap-4 flex-shrink-0">
+              <label className="flex items-center gap-2 text-sm cursor-pointer whitespace-nowrap">
+                <input
+                  type="checkbox"
+                  checked={showOnlyCompleted}
+                  onChange={(e) => setShowOnlyCompleted(e.target.checked)}
+                  className="w-4 h-4 rounded border-border"
+                />
+                <span className="text-muted-foreground">Only Completed</span>
+              </label>
+              {!showAll && filteredMeetings.length > 5 && (
+                <button
+                  onClick={() => {
+                    setShowAll(true)
+                    setShowOnlyCompleted(false)
+                  }}
+                  className="text-sm text-primary hover:underline whitespace-nowrap"
+                >
+                  Show All ({filteredMeetings.length})
+                </button>
+              )}
+              {showAll && (
+                <button
+                  onClick={() => {
+                    setShowAll(false)
+                    setShowOnlyCompleted(true)
+                  }}
+                  className="text-sm text-muted-foreground hover:text-foreground whitespace-nowrap"
+                >
+                  Show Less
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>

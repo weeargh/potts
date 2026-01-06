@@ -46,8 +46,9 @@ export async function POST(request: NextRequest) {
         } else if (isSvixWebhook) {
             // SVIX webhook signature verification
             if (!SVIX_SECRET) {
-                webhookLogger.warn("SVIX webhook received but MEETINGBAAS_SVIX_SECRET not configured")
-                // Allow through if not configured (for backwards compatibility during setup)
+                // FAIL SECURE: Do not process webhooks if secret is not configured
+                webhookLogger.error("CRITICAL: SVIX webhook received but MEETINGBAAS_SVIX_SECRET not configured. Rejecting request.")
+                return NextResponse.json({ error: "Configuration Error: Missing Webhook Secret" }, { status: 500 })
             } else {
                 try {
                     const wh = new Webhook(SVIX_SECRET)
@@ -67,7 +68,6 @@ export async function POST(request: NextRequest) {
                     return NextResponse.json({ error: "Invalid signature" }, { status: 401 })
                 }
             }
-            webhookLogger.info("Received SVIX webhook (unverified - secret not configured)", { svix_id: svixId })
         } else {
             // No authentication provided
             webhookLogger.warn("Webhook request with no authentication headers")
