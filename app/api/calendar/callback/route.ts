@@ -117,7 +117,7 @@ export async function GET(request: NextRequest) {
             })
         }
 
-        return NextResponse.redirect(`${origin}/?calendar_connected=true`)
+        return NextResponse.redirect(`${origin}/settings?calendar_connected=true`)
     } catch (err) {
         log.error("Calendar OAuth callback error", err instanceof Error ? err : undefined)
 
