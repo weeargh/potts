@@ -69,8 +69,12 @@ export interface Meeting {
   duration_seconds: number | null
   participants: Participant[]
   speakers: Speaker[]
+  // Transcript URLs - API may use different field names
   transcription?: string
+  raw_transcription?: string
+  // Video/Audio URLs - API uses "video" but webhook uses "mp4"
   video?: string
+  mp4?: string
   audio?: string
   diarization?: string
   error_code?: string

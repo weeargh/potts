@@ -487,14 +487,13 @@ export async function scheduleCalendarBot(
     Object.assign(body, callbackConfig)
   }
 
-  // IMPORTANT: Pass user_id in extra for webhook to associate with correct user
-  if (botConfig?.userId) {
-    body.extra = {
-      user_id: botConfig.userId,
-      bot_name: botConfig.botName || "Potts Recorder",
-      calendar_id: calendarId,
-      event_id: eventId,
-    }
+  // IMPORTANT: Always include calendar_id in extra for webhook user lookup
+  // Even if userId is not available, the webhook can look up via calendar_id
+  body.extra = {
+    ...(botConfig?.userId && { user_id: botConfig.userId }),
+    bot_name: botConfig?.botName || "Potts Recorder",
+    calendar_id: calendarId,
+    event_id: eventId,
   }
 
   return apiPost<{ bot_id: string }>(`/calendars/${calendarId}/bots`, body)
