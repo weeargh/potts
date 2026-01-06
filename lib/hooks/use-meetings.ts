@@ -35,7 +35,11 @@ export interface MeetingDetail extends Meeting {
 export function useMeeting(id: string | null) {
     const { data, error, isLoading, mutate } = useSWR<MeetingDetail>(
         id ? `/api/bots/${id}` : null,
-        fetcher
+        fetcher,
+        {
+            keepPreviousData: true,
+            revalidateOnFocus: false,
+        }
     )
 
     return {
