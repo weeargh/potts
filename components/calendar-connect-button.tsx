@@ -35,17 +35,18 @@ export function CalendarConnectButton({ onConnected }: CalendarConnectButtonProp
     }, [onConnected])
 
     useEffect(() => {
-        checkConnection()
-
-        // Check URL params for connection status
+        // Check URL params for connection status first
         const params = new URLSearchParams(window.location.search)
-        if (params.get("calendar_connected") === "true") {
-            checkConnection()
-            onConnected?.()
-            // Clean up URL
+        const justConnected = params.get("calendar_connected") === "true"
+
+        if (justConnected) {
+            // Clean up URL before checking connection
             window.history.replaceState({}, "", window.location.pathname)
         }
-    }, [checkConnection, onConnected])
+
+        // Single call to check connection (handles both fresh load and post-connection)
+        checkConnection()
+    }, [checkConnection])
 
     const handleConnect = () => {
         setIsConnecting(true)

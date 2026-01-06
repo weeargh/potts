@@ -368,7 +368,7 @@ export async function createCalendarConnection(params: {
 
   // If no raw_calendar_id provided, fetch the list of raw calendars first
   if (!rawCalendarId) {
-    console.log("No raw_calendar_id provided, fetching raw calendars...")
+    // Fetching raw calendars to find primary calendar
     const rawCalendars = await listRawCalendars({
       oauthClientId: params.oauthClientId,
       oauthClientSecret: params.oauthClientSecret,
@@ -383,7 +383,7 @@ export async function createCalendarConnection(params: {
     // Use the first (primary) calendar
     const primaryCalendar = rawCalendars[0]!
     rawCalendarId = primaryCalendar.id
-    console.log("Using raw calendar:", rawCalendarId, primaryCalendar.name)
+    // Using primary calendar
 
     // Wait 1.5 seconds to respect MeetingBaas rate limit (1 req/sec)
     await new Promise(resolve => setTimeout(resolve, 1500))

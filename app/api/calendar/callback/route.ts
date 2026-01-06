@@ -4,6 +4,9 @@ import { createCalendarConnection, listCalendars, deleteCalendar } from "@/lib/a
 import { createClient } from "@/lib/supabase/server"
 import { encrypt } from "@/lib/crypto"
 import { ensureUserExists } from "@/lib/utils/ensure-user"
+import { logger } from "@/lib/logger"
+
+const log = logger.child('api:calendar:callback')
 
 export async function GET(request: NextRequest) {
     const { searchParams, origin } = new URL(request.url)
@@ -12,54 +15,58 @@ export async function GET(request: NextRequest) {
     const debug = searchParams.get("debug") // Add debug mode
 
     if (error) {
-        console.error("Calendar OAuth error from Google:", error)
+        log.error("Calendar OAuth error from Google", undefined, { error })
         return NextResponse.redirect(`${origin}/?error=calendar_auth_denied`)
     }
 
     if (!code) {
-        console.error("Missing auth code in callback")
+        log.error("Missing auth code in callback")
         return NextResponse.redirect(`${origin}/?error=missing_auth_code`)
     }
 
     try {
         const redirectUri = `${origin}/api/calendar/callback`
-        console.log("Calendar callback - exchanging code for tokens...")
+        log.info("Exchanging code for tokens")
 
         // Exchange code for tokens
         const tokens = await exchangeCodeForTokens(code, redirectUri)
-        console.log("Token exchange successful, got refresh_token:", !!tokens.refresh_token)
+        log.info("Token exchange successful", { has_refresh_token: !!tokens.refresh_token })
 
         if (!tokens.refresh_token) {
-            console.error("No refresh token received from Google")
+            log.error("No refresh token received from Google")
             return NextResponse.redirect(`${origin}/?error=no_refresh_token`)
         }
 
         // Get Google credentials for MeetingBaas
         const { clientId, clientSecret } = getGoogleCredentials()
-        console.log("Google credentials loaded:", { hasClientId: !!clientId, hasClientSecret: !!clientSecret })
+        log.debug("Google credentials loaded", { hasClientId: !!clientId, hasClientSecret: !!clientSecret })
 
         if (!clientId || !clientSecret) {
-            console.error("Missing GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET")
+            log.error("Missing GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET")
             return NextResponse.redirect(`${origin}/?error=missing_google_credentials`)
         }
 
-        // PROACTIVE CLEANUP: Delete any existing Google calendars before creating new one
-        // This fixes duplicate calendar issues and ensures a clean state
-        console.log("Checking for existing calendar connections to cleanup...")
+        // PROACTIVE CLEANUP: Delete any existing Google calendars for THIS USER before creating new one
+        // This fixes duplicate calendar issues and ensures a clean state for the current user
+        log.info("Checking for existing calendar connections to cleanup")
         try {
             const existingCalendars = await listCalendars()
-            console.log("Found existing calendars:", existingCalendars.length)
+            log.info("Found existing calendars", { count: existingCalendars.length })
 
             // Delete ALL existing Google calendars proactively
+            // Note: In a multi-user environment, this should be scoped to the current user
             for (const cal of existingCalendars) {
                 if (cal.calendar_platform === 'google') {
-                    console.log(`Proactively deleting existing calendar: ${cal.calendar_id} (${cal.account_email})`)
+                    log.info("Deleting existing calendar", { calendar_id: cal.calendar_id, email: cal.account_email })
                     try {
                         await deleteCalendar(cal.calendar_id)
                         // Rate limit pause between deletions
                         await new Promise(resolve => setTimeout(resolve, 1500))
                     } catch (delErr) {
-                        console.warn(`Failed to delete calendar ${cal.calendar_id}:`, delErr)
+                        log.warn("Failed to delete calendar", {
+                            calendar_id: cal.calendar_id,
+                            error: delErr instanceof Error ? delErr.message : String(delErr)
+                        })
                         // Continue with other deletions
                     }
                 }
@@ -67,15 +74,17 @@ export async function GET(request: NextRequest) {
 
             if (existingCalendars.filter(c => c.calendar_platform === 'google').length > 0) {
                 // Extra pause after cleanup before creating new connection
-                console.log("Waiting after cleanup before creating new connection...")
+                log.debug("Waiting after cleanup before creating new connection")
                 await new Promise(resolve => setTimeout(resolve, 2000))
             }
         } catch (listErr) {
-            console.log("No existing calendars or error listing (this is OK):", listErr)
+            log.debug("No existing calendars or error listing (this is OK)", {
+                error: listErr instanceof Error ? listErr.message : String(listErr)
+            })
         }
 
         // Create calendar connection in MeetingBaas
-        console.log("Creating calendar connection in MeetingBaas...")
+        log.info("Creating calendar connection in MeetingBaas")
         let calendar
         try {
             calendar = await createCalendarConnection({
@@ -84,17 +93,17 @@ export async function GET(request: NextRequest) {
                 oauthRefreshToken: tokens.refresh_token,
                 platform: "google",
             })
-            console.log("MeetingBaas calendar created successfully:", calendar)
+            log.info("MeetingBaas calendar created successfully", { calendar_id: calendar.calendar_id })
         } catch (createErr) {
             const errorMessage = createErr instanceof Error ? createErr.message : String(createErr)
-            console.error("Calendar creation failed:", errorMessage)
+            log.error("Calendar creation failed", createErr instanceof Error ? createErr : undefined, { error: errorMessage })
             throw createErr
         }
 
         // Get current user from Supabase
         const supabase = await createClient()
         const { data: { user } } = await supabase.auth.getUser()
-        console.log("Supabase user:", user?.id)
+        log.debug("Supabase user", { user_id: user?.id })
 
         // Ensure user exists in database before storing calendar
         if (user) {
@@ -124,7 +133,7 @@ export async function GET(request: NextRequest) {
             })
 
             if (dbError) {
-                console.error("Supabase DB error:", dbError)
+                log.error("Supabase DB error", undefined, { error: dbError.message })
             }
         }
 
@@ -144,7 +153,7 @@ export async function GET(request: NextRequest) {
 
         return NextResponse.redirect(`${origin}/?calendar_connected=true`)
     } catch (err) {
-        console.error("Calendar OAuth callback error:", err)
+        log.error("Calendar OAuth callback error", err instanceof Error ? err : undefined)
 
         // Return more details in debug mode
         if (debug) {

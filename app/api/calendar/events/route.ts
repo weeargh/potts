@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
 import { listCalendars, listCalendarEvents } from "@/lib/api/meetingbaas"
-import { autoScheduleBotsForEvents } from "@/lib/api/auto-schedule"
 import { prisma } from "@/lib/prisma"
 import { createClient } from "@/lib/supabase/server"
 import { ensureUserExists } from "@/lib/utils/ensure-user"
+import { logger } from "@/lib/logger"
+
+const log = logger.child('api:calendar:events')
 
 export async function GET(request: NextRequest) {
     // Authenticate user
@@ -33,14 +35,14 @@ export async function GET(request: NextRequest) {
             let calendars: Awaited<ReturnType<typeof listCalendars>> = []
             try {
                 calendars = await listCalendars()
-                console.log("MeetingBaas calendars fetched:", calendars.length, calendars.map(c => c.calendar_id))
+                log.debug("MeetingBaas calendars fetched", { count: calendars.length, ids: calendars.map(c => c.calendar_id) })
             } catch (err) {
-                console.log("No calendars connected or MeetingBaas error:", err)
+                log.debug("No calendars connected or MeetingBaas error", { error: err instanceof Error ? err.message : String(err) })
                 return NextResponse.json({ events: [], calendars: [], message: "No calendars connected" })
             }
 
             if (calendars.length === 0) {
-                console.log("No calendars found on MeetingBaas")
+                log.debug("No calendars found on MeetingBaas")
                 return NextResponse.json({ events: [], calendars: [], message: "No calendars connected" })
             }
 
@@ -50,7 +52,7 @@ export async function GET(request: NextRequest) {
                 email: cal.account_email,
                 name: cal.account_email.split('@')[0] || 'Calendar',
             }))
-            console.log("Mapped calendars for frontend:", mappedCalendars)
+            log.debug("Mapped calendars for frontend", { calendars: mappedCalendars })
 
             // For "all calendars", fetch events but don't fail if events fetching fails
             let events: { meeting_url?: string; start_time: string }[] = []
@@ -60,7 +62,10 @@ export async function GET(request: NextRequest) {
                         try {
                             return await getEventsWithCache(cal.calendar_id, forceRefresh, startDate, endDate)
                         } catch (eventErr) {
-                            console.warn(`Failed to get events for calendar ${cal.calendar_id}:`, eventErr)
+                            log.warn("Failed to get events for calendar", {
+                                calendar_id: cal.calendar_id,
+                                error: eventErr instanceof Error ? eventErr.message : String(eventErr)
+                            })
                             return []
                         }
                     })
@@ -70,17 +75,11 @@ export async function GET(request: NextRequest) {
                     .filter((e: { meeting_url?: string }) => e.meeting_url)
                     .sort((a: { start_time: string }, b: { start_time: string }) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
             } catch (eventsErr) {
-                console.error("Failed to fetch events (returning calendars anyway):", eventsErr)
+                log.error("Failed to fetch events (returning calendars anyway)", eventsErr instanceof Error ? eventsErr : undefined)
             }
 
-            // Auto-schedule bots for new events when refreshing
-            if (forceRefresh) {
-                console.log("Force refresh: auto-scheduling bots for new events...")
-                // Run in background, don't block response
-                autoScheduleBotsForEvents().catch(err =>
-                    console.error("Background auto-schedule failed:", err)
-                )
-            }
+            // Note: Bot scheduling is now handled by calendar.event_created webhooks
+            // The background auto-scheduler was removed as it's unreliable in serverless environments
 
             return NextResponse.json({
                 events,
@@ -95,7 +94,7 @@ export async function GET(request: NextRequest) {
             events: events.filter((e: { meeting_url?: string }) => e.meeting_url)
         })
     } catch (error) {
-        console.error("Failed to fetch calendar events:", error)
+        log.error("Failed to fetch calendar events", error instanceof Error ? error : undefined)
         return NextResponse.json({
             events: [],
             calendars: [],
@@ -106,24 +105,20 @@ export async function GET(request: NextRequest) {
 
 async function getEventsWithCache(calendarId: string, forceRefresh: boolean, startDate?: string | null, endDate?: string | null) {
     // 1. Calculate cache expiry (8 hours ago)
-    const eightHoursAgo = new Date(Date.now() - 8 * 60 * 60 * 1000)
+    const cacheExpiry = new Date(Date.now() - 8 * 60 * 60 * 1000)
 
-    // 2. Check DB for valid cache
+    // 2. Check DB for valid cache - single query that returns data if cache is valid
     if (!forceRefresh) {
-        const cachedCount = await prisma.calendarEvent.count({
+        const cachedEvents = await prisma.calendarEvent.findMany({
             where: {
                 calendarId: calendarId,
-                lastFetchedAt: { gt: eightHoursAgo }
-            }
+                lastFetchedAt: { gt: cacheExpiry }
+            },
+            orderBy: { startTime: 'asc' }
         })
 
-        if (cachedCount > 0) {
-            console.log(`Using cached events for calendar ${calendarId}`)
-            const cachedEvents = await prisma.calendarEvent.findMany({
-                where: { calendarId: calendarId },
-                orderBy: { startTime: 'asc' }
-            })
-
+        if (cachedEvents.length > 0) {
+            log.debug("Using cached events", { calendar_id: calendarId, count: cachedEvents.length })
             // Map back to API format
             return cachedEvents.map(e => ({
                 event_id: e.eventId,
@@ -142,16 +137,17 @@ async function getEventsWithCache(calendarId: string, forceRefresh: boolean, sta
     }
 
     // 3. Cache miss or forced refresh: Fetch from API
-    console.log(`Fetching fresh events for calendar ${calendarId}`)
+    log.debug("Fetching fresh events", { calendar_id: calendarId })
     const events = await listCalendarEvents(calendarId, {
         startDate: startDate || new Date().toISOString().split("T")[0],
         endDate: endDate || undefined,
         limit: 50,
     })
-    console.log(`Fetched ${events.length} events from MeetingBaas for calendar ${calendarId}`)
-    if (events.length > 0) {
-        console.log("First event:", events[0]?.title, events[0]?.start_time)
-    }
+    log.debug("Fetched events from MeetingBaas", {
+        calendar_id: calendarId,
+        count: events.length,
+        first_event: events.length > 0 ? { title: events[0]?.title, start: events[0]?.start_time } : null
+    })
 
     // 4. Save to DB (Upsert)
     // We do this asynchronously to not block the UI response too much, 
@@ -191,7 +187,7 @@ async function getEventsWithCache(calendarId: string, forceRefresh: boolean, sta
                 }
             })
         )
-    ).catch(err => console.error("Failed to cache calendar events:", err))
+    ).catch(err => log.error("Failed to cache calendar events", err instanceof Error ? err : undefined))
 
     return events
 }

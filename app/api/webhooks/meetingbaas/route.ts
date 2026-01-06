@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { getTranscript, scheduleCalendarBot, getBotStatus } from "@/lib/api/meetingbaas"
+import { getTranscript, scheduleCalendarBot, getBotStatus, cancelScheduledBot } from "@/lib/api/meetingbaas"
 import { generateMeetingAIContent } from "@/lib/ai/generate"
 import { logger } from "@/lib/logger"
+import { Webhook } from "svix"
 
 const CALLBACK_SECRET = process.env.MEETINGBAAS_CALLBACK_SECRET || ""
+const SVIX_SECRET = process.env.MEETINGBAAS_SVIX_SECRET || ""
 const webhookLogger = logger.child('webhook:meetingbaas')
 
 /**
@@ -42,9 +44,30 @@ export async function POST(request: NextRequest) {
                 return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
             }
         } else if (isSvixWebhook) {
-            // SVIX webhook - for now we accept it (TODO: add SVIX signature verification)
-            // Full verification requires the SVIX signing secret from MeetingBaas dashboard
-            webhookLogger.info("Received SVIX webhook", { svix_id: svixId })
+            // SVIX webhook signature verification
+            if (!SVIX_SECRET) {
+                webhookLogger.warn("SVIX webhook received but MEETINGBAAS_SVIX_SECRET not configured")
+                // Allow through if not configured (for backwards compatibility during setup)
+            } else {
+                try {
+                    const wh = new Webhook(SVIX_SECRET)
+                    const body = await request.text()
+                    // Verify signature - throws if invalid
+                    wh.verify(body, {
+                        "svix-id": svixId!,
+                        "svix-timestamp": svixTimestamp!,
+                        "svix-signature": svixSignature!,
+                    })
+                    webhookLogger.info("SVIX signature verified", { svix_id: svixId })
+                    // Re-parse the body since we consumed it
+                    const payload = JSON.parse(body)
+                    return await processWebhook(payload, webhookLogger)
+                } catch (err) {
+                    webhookLogger.error("SVIX signature verification failed", err instanceof Error ? err : undefined)
+                    return NextResponse.json({ error: "Invalid signature" }, { status: 401 })
+                }
+            }
+            webhookLogger.info("Received SVIX webhook (unverified - secret not configured)", { svix_id: svixId })
         } else {
             // No authentication provided
             webhookLogger.warn("Webhook request with no authentication headers")
@@ -52,66 +75,7 @@ export async function POST(request: NextRequest) {
         }
 
         const payload = await request.json()
-        const event = payload.event as string
-        const data = payload.data
-
-        webhookLogger.info(`Webhook received: ${event}`, {
-            bot_id: data?.bot_id,
-            status: data?.status?.code || data?.error_code
-        })
-
-        switch (event) {
-            // Bot events
-            case "bot.completed":
-                await handleBotCompleted(data)
-                break
-
-            case "bot.failed":
-                await handleBotFailed(data)
-                break
-
-            case "bot.status_change":
-                await handleStatusChange(data)
-                break
-
-            // Calendar events
-            case "calendar.connection_created":
-                await handleCalendarConnectionCreated(data)
-                break
-
-            case "calendar.connection_updated":
-                await handleCalendarConnectionUpdated(data)
-                break
-
-            case "calendar.connection_deleted":
-                await handleCalendarConnectionDeleted(data)
-                break
-
-            case "calendar.connection_error":
-                await handleCalendarConnectionError(data)
-                break
-
-            case "calendar.events_synced":
-                await handleCalendarEventsSynced(data)
-                break
-
-            case "calendar.event_created":
-                await handleCalendarEventCreated(data)
-                break
-
-            case "calendar.event_updated":
-                await handleCalendarEventUpdated(data)
-                break
-
-            case "calendar.event_cancelled":
-                await handleCalendarEventCancelled(data)
-                break
-
-            default:
-                webhookLogger.warn(`Unhandled webhook event: ${event}`)
-        }
-
-        return NextResponse.json({ success: true })
+        return await processWebhook(payload, webhookLogger)
     } catch (error) {
         webhookLogger.error("Webhook processing failed", error instanceof Error ? error : undefined, {
             error: error instanceof Error ? error.message : String(error)
@@ -121,6 +85,72 @@ export async function POST(request: NextRequest) {
             { status: 500 }
         )
     }
+}
+
+/**
+ * Process webhook payload - extracted for reuse with SVIX verification
+ */
+async function processWebhook(payload: { event: string; data: unknown }, log: typeof webhookLogger) {
+    const event = payload.event
+    const data = payload.data as Record<string, unknown>
+
+    log.info(`Webhook received: ${event}`, {
+        bot_id: data?.bot_id,
+        status: (data?.status as { code?: string })?.code || data?.error_code
+    })
+
+    switch (event) {
+        // Bot events
+        case "bot.completed":
+            await handleBotCompleted(data as unknown as BotCompletedData)
+            break
+
+        case "bot.failed":
+            await handleBotFailed(data as unknown as Parameters<typeof handleBotFailed>[0])
+            break
+
+        case "bot.status_change":
+            await handleStatusChange(data as unknown as Parameters<typeof handleStatusChange>[0])
+            break
+
+        // Calendar events
+        case "calendar.connection_created":
+            await handleCalendarConnectionCreated(data as unknown as Parameters<typeof handleCalendarConnectionCreated>[0])
+            break
+
+        case "calendar.connection_updated":
+            await handleCalendarConnectionUpdated(data as unknown as Parameters<typeof handleCalendarConnectionUpdated>[0])
+            break
+
+        case "calendar.connection_deleted":
+            await handleCalendarConnectionDeleted(data as unknown as Parameters<typeof handleCalendarConnectionDeleted>[0])
+            break
+
+        case "calendar.connection_error":
+            await handleCalendarConnectionError(data as unknown as Parameters<typeof handleCalendarConnectionError>[0])
+            break
+
+        case "calendar.events_synced":
+            await handleCalendarEventsSynced(data as unknown as Parameters<typeof handleCalendarEventsSynced>[0])
+            break
+
+        case "calendar.event_created":
+            await handleCalendarEventCreated(data as unknown as Parameters<typeof handleCalendarEventCreated>[0])
+            break
+
+        case "calendar.event_updated":
+            await handleCalendarEventUpdated(data as unknown as Parameters<typeof handleCalendarEventUpdated>[0])
+            break
+
+        case "calendar.event_cancelled":
+            await handleCalendarEventCancelled(data as unknown as Parameters<typeof handleCalendarEventCancelled>[0])
+            break
+
+        default:
+            log.warn(`Unhandled webhook event: ${event}`)
+    }
+
+    return NextResponse.json({ success: true })
 }
 
 // =============================================================================
@@ -391,40 +421,35 @@ async function handleBotCompleted(data: BotCompletedData) {
 
 /**
  * Extract userId from webhook extra data
- * Falls back to calendar account lookup for legacy bots
+ * SECURITY: Only returns userId if we can definitively identify the user
+ * Returns null if user cannot be determined (meeting will be rejected)
  */
 async function extractUserId(extra?: Record<string, unknown>): Promise<string | null> {
-    // First, try to get from extra (new bots pass this)
+    // Primary: Get from extra (new bots always pass this)
     if (extra?.user_id && typeof extra.user_id === 'string') {
         return extra.user_id
     }
 
-    // Fallback for legacy bots: look up via calendar account
-    webhookLogger.warn("No user_id in extra, using fallback lookup")
-
-    // Try to find via calendar_id if present
-    if (extra?.calendar_id && typeof extra.calendar_id === 'string') {
+    // Secondary: Look up via calendar_id if provided (for calendar-scheduled bots)
+    const calendarId = extra?.calendar_id as string | undefined
+    if (calendarId) {
         const calendarAccount = await prisma.calendarAccount.findFirst({
-            where: { meetingbaasCalendarId: extra.calendar_id },
+            where: { meetingbaasCalendarId: calendarId },
             select: { userId: true }
         })
         if (calendarAccount) {
+            webhookLogger.info("Resolved user via calendar_id", { calendar_id: calendarId })
             return calendarAccount.userId
         }
     }
 
-    // Last resort: get any active calendar account
-    const anyCalendar = await prisma.calendarAccount.findFirst({
-        where: { isActive: true },
-        select: { userId: true }
+    // SECURITY: Do NOT fall back to random users - this would be a privacy violation
+    // If we can't identify the user, reject the webhook
+    webhookLogger.error("Cannot identify user for webhook - no user_id or valid calendar_id", undefined, {
+        has_extra: !!extra,
+        has_calendar_id: !!calendarId
     })
-    if (anyCalendar) {
-        return anyCalendar.userId
-    }
-
-    // Ultimate fallback: any user
-    const anyUser = await prisma.user.findFirst({ select: { id: true } })
-    return anyUser?.id || null
+    return null
 }
 
 /**
@@ -683,13 +708,65 @@ async function handleCalendarEventUpdated(data: {
         end_time: string
         meeting_url: string | null
         bot_scheduled?: boolean
+        bot_id?: string
     }>
 }) {
     webhookLogger.info("Calendar event updated", {
         calendar_id: data.calendar_id,
         instance_count: data.affected_instances?.length
     })
-    // TODO: Handle event rescheduling - update bot schedules if time changed
+
+    if (!data.affected_instances || data.affected_instances.length === 0) return
+
+    // Get userId from calendar account
+    const calendarAccount = await prisma.calendarAccount.findFirst({
+        where: { meetingbaasCalendarId: data.calendar_id },
+        select: { userId: true }
+    })
+    const userId = calendarAccount?.userId
+
+    for (const instance of data.affected_instances) {
+        // If event now has a meeting URL and no bot scheduled, schedule one
+        if (instance.meeting_url && !instance.bot_scheduled) {
+            const eventStart = new Date(instance.start_time)
+            if (eventStart <= new Date()) continue // Skip past events
+
+            try {
+                await scheduleCalendarBot(data.calendar_id, instance.event_id, {
+                    botName: `Potts - ${instance.title}`,
+                    seriesId: data.series_id,
+                    userId: userId || undefined,
+                })
+                webhookLogger.info("Scheduled bot for updated event", {
+                    event_id: instance.event_id,
+                    title: instance.title
+                })
+            } catch (error) {
+                webhookLogger.error("Failed to schedule bot for updated event", error instanceof Error ? error : undefined, {
+                    event_id: instance.event_id
+                })
+            }
+
+            await new Promise(resolve => setTimeout(resolve, 500))
+        }
+
+        // Update cached event in database if we track it
+        try {
+            await prisma.calendarEvent.updateMany({
+                where: { eventId: instance.event_id },
+                data: {
+                    title: instance.title,
+                    startTime: new Date(instance.start_time),
+                    endTime: new Date(instance.end_time),
+                    meetingUrl: instance.meeting_url,
+                    botScheduled: instance.bot_scheduled || false,
+                    lastFetchedAt: new Date(),
+                }
+            })
+        } catch {
+            // Event might not be cached yet, ignore
+        }
+    }
 }
 
 async function handleCalendarEventCancelled(data: {
@@ -700,11 +777,45 @@ async function handleCalendarEventCancelled(data: {
         event_id: string
         title: string
         start_time: string
+        bot_id?: string
     }>
 }) {
     webhookLogger.info("Calendar event cancelled", {
         calendar_id: data.calendar_id,
         instance_count: data.cancelled_instances?.length
     })
-    // TODO: Cancel scheduled bots for cancelled events
+
+    if (!data.cancelled_instances || data.cancelled_instances.length === 0) return
+
+    for (const instance of data.cancelled_instances) {
+        // If a bot was scheduled for this event, try to cancel it
+        if (instance.bot_id) {
+            try {
+                await cancelScheduledBot(instance.bot_id)
+                webhookLogger.info("Cancelled bot for cancelled event", {
+                    event_id: instance.event_id,
+                    bot_id: instance.bot_id,
+                    title: instance.title
+                })
+            } catch (error) {
+                // Bot may have already started or completed - that's OK
+                webhookLogger.warn("Could not cancel bot (may have already started)", {
+                    event_id: instance.event_id,
+                    bot_id: instance.bot_id,
+                    error: error instanceof Error ? error.message : String(error)
+                })
+            }
+
+            await new Promise(resolve => setTimeout(resolve, 500))
+        }
+
+        // Remove from cached events in database
+        try {
+            await prisma.calendarEvent.deleteMany({
+                where: { eventId: instance.event_id }
+            })
+        } catch {
+            // Event might not be cached, ignore
+        }
+    }
 }

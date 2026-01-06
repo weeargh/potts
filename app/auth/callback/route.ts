@@ -4,6 +4,9 @@ import { NextRequest, NextResponse } from "next/server"
 import { createCalendarConnection, listCalendars, deleteCalendar } from "@/lib/api/meetingbaas"
 import { getGoogleCredentials } from "@/lib/api/google-oauth"
 import { autoScheduleBotsForEvents } from "@/lib/api/auto-schedule"
+import { logger } from "@/lib/logger"
+
+const log = logger.child('auth:callback')
 
 export async function GET(request: NextRequest) {
     const { searchParams, origin } = new URL(request.url)
@@ -42,7 +45,7 @@ export async function GET(request: NextRequest) {
             try {
                 const providerToken = data.session.provider_token
                 const providerRefreshToken = data.session.provider_refresh_token
-                console.log("Auth callback: provider tokens available:", !!providerToken, !!providerRefreshToken)
+                log.debug("Provider tokens available", { has_token: !!providerToken, has_refresh: !!providerRefreshToken })
 
                 if (providerRefreshToken) {
                     const { clientId, clientSecret } = getGoogleCredentials()
@@ -50,19 +53,22 @@ export async function GET(request: NextRequest) {
                     // Only attempt connection if we have Google OAuth credentials configured
                     if (clientId && clientSecret) {
                         // PROACTIVE CLEANUP: Delete existing Google calendars first
-                        console.log("Auth callback: checking for existing calendars to cleanup...")
+                        log.info("Checking for existing calendars to cleanup")
                         try {
                             const existingCalendars = await listCalendars()
-                            console.log("Found existing calendars:", existingCalendars.length)
+                            log.info("Found existing calendars", { count: existingCalendars.length })
 
                             for (const cal of existingCalendars) {
                                 if (cal.calendar_platform === 'google') {
-                                    console.log(`Deleting existing calendar: ${cal.calendar_id}`)
+                                    log.info("Deleting existing calendar", { calendar_id: cal.calendar_id })
                                     try {
                                         await deleteCalendar(cal.calendar_id)
                                         await new Promise(resolve => setTimeout(resolve, 1500))
                                     } catch (delErr) {
-                                        console.warn(`Failed to delete calendar ${cal.calendar_id}:`, delErr)
+                                        log.warn("Failed to delete calendar", {
+                                            calendar_id: cal.calendar_id,
+                                            error: delErr instanceof Error ? delErr.message : String(delErr)
+                                        })
                                     }
                                 }
                             }
@@ -71,18 +77,20 @@ export async function GET(request: NextRequest) {
                                 await new Promise(resolve => setTimeout(resolve, 2000))
                             }
                         } catch (listErr) {
-                            console.log("No existing calendars or error listing:", listErr)
+                            log.debug("No existing calendars or error listing", {
+                                error: listErr instanceof Error ? listErr.message : String(listErr)
+                            })
                         }
 
                         // Now create the calendar connection
-                        console.log("Auth callback: creating calendar connection...")
+                        log.info("Creating calendar connection")
                         const calendar = await createCalendarConnection({
                             oauthClientId: clientId,
                             oauthClientSecret: clientSecret,
                             oauthRefreshToken: providerRefreshToken,
                             platform: "google",
                         })
-                        console.log("Auth callback: calendar connected successfully:", calendar.calendar_id)
+                        log.info("Calendar connected successfully", { calendar_id: calendar.calendar_id })
                         calendarConnected = true
 
                         // Store in Supabase for reference
@@ -104,14 +112,18 @@ export async function GET(request: NextRequest) {
                         }
 
                         // AUTO-SCHEDULE: Schedule bots for all upcoming meetings
-                        console.log("Auth callback: auto-scheduling bots for upcoming meetings...")
+                        log.info("Auto-scheduling bots for upcoming meetings")
                         const autoScheduleResult = await autoScheduleBotsForEvents(calendar.calendar_id)
-                        console.log("Auth callback: auto-schedule result:", autoScheduleResult)
+                        log.info("Auto-schedule complete", {
+                            scheduled: autoScheduleResult.scheduled,
+                            failed: autoScheduleResult.failed,
+                            skipped: autoScheduleResult.skipped
+                        })
                     }
                 }
             } catch (err) {
                 // Calendar connection failed, but login succeeded - don't block the user
-                console.error("Auto calendar connect failed:", err)
+                log.error("Auto calendar connect failed", err instanceof Error ? err : undefined)
             }
 
             // Ensure next is a valid relative path

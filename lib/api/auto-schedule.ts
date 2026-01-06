@@ -1,11 +1,14 @@
 /**
  * Auto-schedule bots for calendar events
- * 
+ *
  * This module provides functionality to automatically schedule recording bots
  * for all upcoming calendar events that have meeting URLs.
  */
 
 import { listCalendars, listCalendarEvents, scheduleCalendarBot, CalendarEvent } from "./meetingbaas"
+import { logger } from "@/lib/logger"
+
+const log = logger.child('auto-schedule')
 
 interface AutoScheduleResult {
     scheduled: number
@@ -34,7 +37,7 @@ export async function autoScheduleBotsForEvents(calendarId?: string): Promise<Au
             ? [{ calendar_id: calendarId }]
             : await listCalendars()
 
-        console.log(`Auto-schedule: processing ${calendars.length} calendar(s)`)
+        log.info("Processing calendars", { count: calendars.length })
 
         for (const cal of calendars) {
             try {
@@ -44,7 +47,7 @@ export async function autoScheduleBotsForEvents(calendarId?: string): Promise<Au
                     limit: 50,
                 })
 
-                console.log(`Auto-schedule: found ${events.length} events for calendar ${cal.calendar_id}`)
+                log.debug("Found events for calendar", { calendar_id: cal.calendar_id, count: events.length })
 
                 // Filter events that need bot scheduling
                 const eventsToSchedule = events.filter((event: CalendarEvent) =>
@@ -53,7 +56,7 @@ export async function autoScheduleBotsForEvents(calendarId?: string): Promise<Au
                     new Date(event.start_time) > new Date() // In the future
                 )
 
-                console.log(`Auto-schedule: ${eventsToSchedule.length} events need bot scheduling`)
+                log.debug("Events need bot scheduling", { count: eventsToSchedule.length })
 
                 // Schedule bots for each event
                 for (const event of eventsToSchedule) {
@@ -63,7 +66,7 @@ export async function autoScheduleBotsForEvents(calendarId?: string): Promise<Au
                             seriesId: event.series_id,
                         })
                         result.scheduled++
-                        console.log(`Auto-schedule: scheduled bot for "${event.title}" at ${event.start_time}`)
+                        log.info("Scheduled bot for event", { title: event.title, start_time: event.start_time })
 
                         // Rate limit: wait between scheduling requests
                         await new Promise(resolve => setTimeout(resolve, 1000))
@@ -71,7 +74,7 @@ export async function autoScheduleBotsForEvents(calendarId?: string): Promise<Au
                         result.failed++
                         const errorMsg = err instanceof Error ? err.message : String(err)
                         result.errors.push(`Failed to schedule "${event.title}": ${errorMsg}`)
-                        console.error(`Auto-schedule: failed for "${event.title}":`, errorMsg)
+                        log.error("Failed to schedule bot", err instanceof Error ? err : undefined, { title: event.title })
                     }
                 }
 
@@ -79,15 +82,15 @@ export async function autoScheduleBotsForEvents(calendarId?: string): Promise<Au
             } catch (err) {
                 const errorMsg = err instanceof Error ? err.message : String(err)
                 result.errors.push(`Failed to process calendar ${cal.calendar_id}: ${errorMsg}`)
-                console.error(`Auto-schedule: failed to process calendar:`, errorMsg)
+                log.error("Failed to process calendar", err instanceof Error ? err : undefined, { calendar_id: cal.calendar_id })
             }
         }
     } catch (err) {
         const errorMsg = err instanceof Error ? err.message : String(err)
         result.errors.push(`Failed to list calendars: ${errorMsg}`)
-        console.error(`Auto-schedule: failed to list calendars:`, errorMsg)
+        log.error("Failed to list calendars", err instanceof Error ? err : undefined)
     }
 
-    console.log(`Auto-schedule complete: ${result.scheduled} scheduled, ${result.failed} failed, ${result.skipped} skipped`)
+    log.info("Auto-schedule complete", { scheduled: result.scheduled, failed: result.failed, skipped: result.skipped })
     return result
 }
