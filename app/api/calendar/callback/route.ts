@@ -62,8 +62,28 @@ export async function GET(request: NextRequest) {
             log.info("MeetingBaas calendar created successfully", { calendar_id: calendar.calendar_id })
         } catch (createErr) {
             const errorMessage = createErr instanceof Error ? createErr.message : String(createErr)
-            log.error("Calendar creation failed", createErr instanceof Error ? createErr : undefined, { error: errorMessage })
-            throw createErr
+
+            // Handle "already exists" error gracefully - fetch existing calendar
+            if (errorMessage.includes("already exists")) {
+                log.info("Calendar already exists in MeetingBaas, fetching existing calendars")
+                try {
+                    const existingCalendars = await listCalendars()
+                    // Find the calendar that matches this refresh token's account
+                    // We'll use the most recently created one as a fallback
+                    if (existingCalendars.length > 0) {
+                        calendar = existingCalendars[existingCalendars.length - 1]
+                        log.info("Using existing calendar", { calendar_id: calendar?.calendar_id })
+                    }
+                } catch (listErr) {
+                    log.error("Failed to list existing calendars", listErr instanceof Error ? listErr : undefined)
+                }
+            }
+
+            // If we still don't have a calendar, throw the original error
+            if (!calendar) {
+                log.error("Calendar creation failed", createErr instanceof Error ? createErr : undefined, { error: errorMessage })
+                throw createErr
+            }
         }
 
         // Get current user from Supabase
