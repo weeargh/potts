@@ -112,6 +112,10 @@ export async function GET(
         joinedAt: p.joinedAt?.toISOString(),
         leftAt: p.leftAt?.toISOString(),
       })),
+    }, {
+      headers: {
+        'Cache-Control': 'private, max-age=60, stale-while-revalidate=120'
+      }
     })
   } catch (error) {
     apiLogger.error("Failed to fetch meeting", error instanceof Error ? error : undefined, {

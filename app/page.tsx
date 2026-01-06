@@ -86,15 +86,23 @@ export default function Dashboard() {
       </div>
 
       {/* Upcoming Meetings Section - always shown, component handles empty state */}
-      <div className="border-b border-border px-8 py-4 bg-muted/30">
-        <button
-          onClick={() => setShowUpcoming(!showUpcoming)}
-          className="flex items-center gap-2 text-sm font-medium text-foreground mb-3 hover:text-primary transition-colors"
-        >
-          {showUpcoming ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-          Upcoming Meetings
-        </button>
-        {showUpcoming && <UpcomingEvents onRefresh={reloadMeetings} />}
+      {/* Upcoming Meetings Section */}
+      <div className="px-8 py-6">
+        <div className="flex items-center justify-between mb-3">
+          <button
+            onClick={() => setShowUpcoming(!showUpcoming)}
+            className="flex items-center gap-2 text-sm font-semibold text-foreground hover:text-primary transition-colors"
+          >
+            {showUpcoming ? <ChevronDown className="w-4 h-4" /> : <ChevronDown className="w-4 h-4 -rotate-90" />}
+            Upcoming Meetings
+          </button>
+        </div>
+
+        {showUpcoming && (
+          <div className="animate-in slide-in-from-top-2 duration-200">
+            <UpcomingEvents onRefresh={reloadMeetings} />
+          </div>
+        )}
       </div>
 
       {/* Search and Filters */}

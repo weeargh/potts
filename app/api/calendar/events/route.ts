@@ -84,6 +84,10 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({
                 events,
                 calendars: mappedCalendars
+            }, {
+                headers: {
+                    'Cache-Control': 'private, max-age=300, stale-while-revalidate=600'
+                }
             })
         }
 
@@ -92,6 +96,10 @@ export async function GET(request: NextRequest) {
 
         return NextResponse.json({
             events: events.filter((e: { meeting_url?: string }) => e.meeting_url)
+        }, {
+            headers: {
+                'Cache-Control': 'private, max-age=300, stale-while-revalidate=600'
+            }
         })
     } catch (error) {
         log.error("Failed to fetch calendar events", error instanceof Error ? error : undefined)

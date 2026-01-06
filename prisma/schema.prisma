@@ -38,6 +38,8 @@ model CalendarAccount {
 
   @@unique([userId, provider, email])
   @@index([meetingbaasCalendarId])
+  @@index([userId])
+  @@index([isActive])
   @@map("calendar_accounts")
 }
 
@@ -77,7 +79,8 @@ model Meeting {
   transcript       Transcript?
   diarization      Diarization?
 
-  @@index([userId, createdAt])
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([userId, status])
   @@index([status])
   @@index([calendarEventId])
   @@index([status, createdAt(sort: Desc)])

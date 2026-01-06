@@ -150,6 +150,10 @@ export async function GET(request: NextRequest) {
         hasMore,
         limit
       }
+    }, {
+      headers: {
+        'Cache-Control': 'private, max-age=60, stale-while-revalidate=120'
+      }
     })
   } catch (error) {
     apiLogger.error("Failed to list meetings", error instanceof Error ? error : undefined)

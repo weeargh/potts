@@ -1,7 +1,7 @@
 "use client"
 
-import { useState, useMemo } from "react"
-import { Calendar, Video, Loader2, Clock, RefreshCw, ChevronDown } from "lucide-react"
+import { useState, useMemo, useEffect } from "react"
+import { Calendar, Video, Loader2, RefreshCw, ChevronDown } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { useCalendarEvents } from "@/lib/hooks/use-calendar-events"
@@ -18,8 +18,8 @@ export function UpcomingEvents({ onRefresh }: UpcomingEventsProps) {
     const [showCount, setShowCount] = useState(3)
     const [isRefreshing, setIsRefreshing] = useState(false)
 
-    // Initialize scheduled events from API data
-    useMemo(() => {
+    // Initialize scheduled events from API data - useEffect instead of useMemo for side effects
+    useEffect(() => {
         const scheduled = new Set<string>()
         events.forEach((event: CalendarEvent) => {
             if (event.bot_scheduled) {
@@ -153,87 +153,92 @@ export function UpcomingEvents({ onRefresh }: UpcomingEventsProps) {
     const hasMore = upcomingEvents.length > showCount
 
     return (
-        <div className="space-y-3">
-            {displayedEvents.map((event) => {
-                const isScheduled = scheduledEvents.has(event.event_id)
-                const isScheduling = schedulingEventId === event.event_id
-                const ongoing = isOngoing(event)
+        <div className="bg-background rounded-lg border border-border overflow-hidden">
+            <div className="divide-y divide-border">
+                {displayedEvents.map((event) => {
+                    const isScheduled = scheduledEvents.has(event.event_id)
+                    const isScheduling = schedulingEventId === event.event_id
+                    const ongoing = isOngoing(event)
 
-                return (
-                    <div
-                        key={event.event_id}
-                        className={`flex items-center justify-between p-4 rounded-lg border bg-card hover:bg-muted/50 transition-colors ${ongoing ? "border-primary/50 bg-primary/5" : "border-border"
-                            }`}
-                    >
-                        <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-1">
-                                <h4 className="font-medium text-foreground truncate">{event.title}</h4>
-                                <Badge variant="secondary" className="text-xs">
-                                    {getMeetingPlatform(event.meeting_url)}
-                                </Badge>
-                                {ongoing && (
-                                    <Badge variant="default" className="text-xs bg-green-600">
-                                        Ongoing
-                                    </Badge>
-                                )}
-                            </div>
-
-                            <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                                <span className="flex items-center gap-1">
-                                    <Clock className="w-3.5 h-3.5" />
-                                    {formatDate(event.start_time)} at {formatTime(event.start_time)}
+                    return (
+                        <div
+                            key={event.event_id}
+                            className={`flex items-center gap-4 py-3 px-4 hover:bg-muted/30 transition-colors ${ongoing ? "bg-primary/5" : ""}`}
+                        >
+                            {/* Time Column - Fixed Width */}
+                            <div className="w-24 shrink-0 flex flex-col justify-center">
+                                <span className={`text-sm font-medium ${ongoing ? "text-primary" : "text-foreground"}`}>
+                                    {formatTime(event.start_time)}
+                                </span>
+                                <span className="text-xs text-muted-foreground">
+                                    {formatDate(event.start_time)}
                                 </span>
                             </div>
+
+                            {/* Info Column - Flexible */}
+                            <div className="flex-1 min-w-0 flex items-center gap-3">
+                                <div className="flex flex-col min-w-0">
+                                    <div className="flex items-center gap-2">
+                                        <h4 className="font-medium text-sm text-foreground truncate">{event.title}</h4>
+                                        {ongoing && (
+                                            <Badge variant="default" className="text-[10px] px-1.5 h-5 bg-green-600 hover:bg-green-700">
+                                                Ongoing
+                                            </Badge>
+                                        )}
+                                    </div>
+                                    <div className="flex items-center gap-2 mt-0.5">
+                                        <Badge variant="outline" className="text-[10px] px-1.5 h-4 font-normal text-muted-foreground border-border">
+                                            {getMeetingPlatform(event.meeting_url)}
+                                        </Badge>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Action Column */}
+                            <div className="shrink-0">
+                                <Button
+                                    size="sm"
+                                    variant={isScheduled ? "secondary" : "default"}
+                                    disabled={isScheduled || isScheduling}
+                                    onClick={() => handleScheduleBot(event)}
+                                    className="h-8 px-3 text-xs gap-1.5"
+                                >
+                                    {isScheduling ? (
+                                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    ) : (
+                                        <Video className="w-3.5 h-3.5" />
+                                    )}
+                                    {isScheduled ? "Scheduled" : isScheduling ? "Scheduling..." : "Record"}
+                                </Button>
+                            </div>
                         </div>
-
-                        <Button
-                            size="sm"
-                            variant={isScheduled ? "secondary" : "default"}
-                            disabled={isScheduled || isScheduling}
-                            onClick={() => handleScheduleBot(event)}
-                            className="ml-4 gap-1.5"
-                        >
-                            {isScheduling ? (
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                            ) : (
-                                <Video className="w-4 h-4" />
-                            )}
-                            {isScheduled ? "Scheduled" : isScheduling ? "Scheduling..." : "Record"}
-                        </Button>
-                    </div>
-                )
-            })}
-
-            {/* Show More button */}
-            {hasMore && (
-                <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setShowCount(prev => prev + 3)}
-                    className="w-full gap-1.5 text-muted-foreground hover:text-foreground"
-                >
-                    <ChevronDown className="w-4 h-4" />
-                    Show more
-                </Button>
-            )}
-
-            {/* Refresh button with background revalidation indicator */}
-            <div className="flex justify-center pt-2">
-                <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={handleRefresh}
-                    disabled={isRefreshing}
-                    className="gap-1.5 text-muted-foreground hover:text-foreground"
-                >
-                    {isRefreshing || isValidating ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                        <RefreshCw className="w-4 h-4" />
-                    )}
-                    {isValidating && !isRefreshing ? "Updating..." : "Refresh"}
-                </Button>
+                    )
+                })}
             </div>
+
+            {/* Footer with Show More / Refresh */}
+            {(hasMore || events.length > 0) && (
+                <div className="flex items-center justify-between px-4 py-2 bg-muted/20 border-t border-border">
+                    {hasMore ? (
+                        <button
+                            onClick={() => setShowCount(prev => prev + 5)}
+                            className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors"
+                        >
+                            <ChevronDown className="w-3 h-3" />
+                            Show more
+                        </button>
+                    ) : <div></div>}
+
+                    <button
+                        onClick={handleRefresh}
+                        disabled={isRefreshing}
+                        className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                    >
+                        <RefreshCw className={`w-3 h-3 ${isRefreshing || isValidating ? "animate-spin" : ""}`} />
+                        {isValidating && !isRefreshing ? "Updating..." : "Refresh list"}
+                    </button>
+                </div>
+            )}
         </div>
     )
 }
