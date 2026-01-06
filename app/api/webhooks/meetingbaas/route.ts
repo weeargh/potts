@@ -28,11 +28,32 @@ const webhookLogger = logger.child('webhook:meetingbaas')
  */
 export async function POST(request: NextRequest) {
     try {
+        // DEBUG: Log all incoming headers to identify what MeetingBaas sends
+        const allHeaders: Record<string, string> = {}
+        request.headers.forEach((value, key) => {
+            // Mask sensitive values but show they exist
+            if (key.toLowerCase().includes('secret') || key.toLowerCase().includes('signature') || key.toLowerCase().includes('key')) {
+                allHeaders[key] = value ? `[SET:${value.length}chars]` : '[EMPTY]'
+            } else {
+                allHeaders[key] = value
+            }
+        })
+        webhookLogger.info("Incoming webhook request - ALL HEADERS", { headers: allHeaders })
+
         // Check authentication - support both methods
         const mbSecret = request.headers.get("x-mb-secret")
         const svixId = request.headers.get("svix-id")
         const svixTimestamp = request.headers.get("svix-timestamp")
         const svixSignature = request.headers.get("svix-signature")
+
+        webhookLogger.info("Auth header check", {
+            has_mb_secret: !!mbSecret,
+            has_svix_id: !!svixId,
+            has_svix_timestamp: !!svixTimestamp,
+            has_svix_signature: !!svixSignature,
+            callback_secret_configured: !!CALLBACK_SECRET,
+            svix_secret_configured: !!SVIX_SECRET,
+        })
 
         const isPerBotCallback = !!mbSecret
         const isSvixWebhook = !!(svixId && svixTimestamp && svixSignature)
@@ -198,7 +219,18 @@ interface BotCompletedData {
  */
 async function handleBotCompleted(data: BotCompletedData) {
     const { bot_id } = data
-    webhookLogger.info("Processing bot.completed event", { bot_id })
+
+    // DEBUG: Log the full payload to see what MeetingBaas actually sends
+    webhookLogger.info("Processing bot.completed event - FULL PAYLOAD", {
+        bot_id,
+        has_extra: !!data.extra,
+        extra_keys: data.extra ? Object.keys(data.extra) : [],
+        extra_user_id: data.extra?.user_id,
+        extra_calendar_id: data.extra?.calendar_id,
+        has_transcription: !!data.transcription,
+        has_mp4: !!data.mp4,
+        participants: data.participants,
+    })
 
     // #region agent log
     fetch('http://127.0.0.1:7242/ingest/74db1504-71c7-4e46-b851-eb31403ad8ad', {
@@ -769,6 +801,21 @@ async function handleCalendarEventCreated(data: {
 
     const userId = calendarAccount?.userId
 
+    // DEBUG: Log whether we found the user
+    webhookLogger.info("Calendar user lookup", {
+        calendar_id: data.calendar_id,
+        found_account: !!calendarAccount,
+        found_user_id: !!userId,
+        user_id: userId,
+    })
+
+    if (!userId) {
+        webhookLogger.error("Cannot auto-schedule bot - no user found for calendar", undefined, {
+            calendar_id: data.calendar_id,
+        })
+        return
+    }
+
     for (const instance of data.instances) {
         // Skip events without meeting URLs
         if (!instance.meeting_url) continue
@@ -782,15 +829,38 @@ async function handleCalendarEventCreated(data: {
 
         // Schedule the bot with user_id
         try {
-            await scheduleCalendarBot(data.calendar_id, instance.event_id, {
-                botName: `Potts - ${instance.title}`,
+            const botName = `Potts - ${instance.title}`
+            const result = await scheduleCalendarBot(data.calendar_id, instance.event_id, {
+                botName,
                 seriesId: data.series_id,
-                userId: userId || undefined,  // Pass userId for webhook association
+                userId,  // Pass userId for webhook association
             })
-            webhookLogger.info("Auto-scheduled bot for event", {
+
+            // Create Meeting record in Supabase immediately
+            // This ensures the webhook can find the meeting even if extra is not returned
+            await prisma.meeting.create({
+                data: {
+                    botId: result.bot_id,
+                    userId,
+                    botName,
+                    meetingUrl: instance.meeting_url,
+                    status: "scheduled",
+                    processingStatus: "pending",
+                    extra: {
+                        user_id: userId,
+                        calendar_id: data.calendar_id,
+                        event_id: instance.event_id,
+                        scheduled_start: instance.start_time,
+                    },
+                }
+            })
+
+            webhookLogger.info("Auto-scheduled bot for event and created meeting record", {
+                bot_id: result.bot_id,
                 event_id: instance.event_id,
                 title: instance.title,
-                start_time: instance.start_time
+                start_time: instance.start_time,
+                user_id: userId,
             })
         } catch (error) {
             webhookLogger.error("Failed to auto-schedule bot", error instanceof Error ? error : undefined, {
@@ -839,15 +909,45 @@ async function handleCalendarEventUpdated(data: {
             const eventStart = new Date(instance.start_time)
             if (eventStart <= new Date()) continue // Skip past events
 
-            try {
-                await scheduleCalendarBot(data.calendar_id, instance.event_id, {
-                    botName: `Potts - ${instance.title}`,
-                    seriesId: data.series_id,
-                    userId: userId || undefined,
-                })
-                webhookLogger.info("Scheduled bot for updated event", {
+            if (!userId) {
+                webhookLogger.warn("Cannot schedule bot for updated event - no user found", {
+                    calendar_id: data.calendar_id,
                     event_id: instance.event_id,
-                    title: instance.title
+                })
+                continue
+            }
+
+            try {
+                const botName = `Potts - ${instance.title}`
+                const result = await scheduleCalendarBot(data.calendar_id, instance.event_id, {
+                    botName,
+                    seriesId: data.series_id,
+                    userId,
+                })
+
+                // Create Meeting record in Supabase immediately
+                await prisma.meeting.create({
+                    data: {
+                        botId: result.bot_id,
+                        userId,
+                        botName,
+                        meetingUrl: instance.meeting_url,
+                        status: "scheduled",
+                        processingStatus: "pending",
+                        extra: {
+                            user_id: userId,
+                            calendar_id: data.calendar_id,
+                            event_id: instance.event_id,
+                            scheduled_start: instance.start_time,
+                        },
+                    }
+                })
+
+                webhookLogger.info("Scheduled bot for updated event and created meeting record", {
+                    bot_id: result.bot_id,
+                    event_id: instance.event_id,
+                    title: instance.title,
+                    user_id: userId,
                 })
             } catch (error) {
                 webhookLogger.error("Failed to schedule bot for updated event", error instanceof Error ? error : undefined, {
