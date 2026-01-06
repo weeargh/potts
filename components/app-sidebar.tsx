@@ -3,7 +3,7 @@
 import Link from "next/link"
 import Image from "next/image"
 import { usePathname, useRouter } from "next/navigation"
-import { Home, Calendar, Settings, LogOut } from "lucide-react"
+import { Home, Settings, LogOut } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 
 export function AppSidebar() {
@@ -12,8 +12,7 @@ export function AppSidebar() {
   const supabase = createClient()
 
   const navItems = [
-    { icon: Home, label: "Dashboard", href: "/" },
-    { icon: Calendar, label: "Meetings", href: "/meetings" },
+    { icon: Home, label: "Recordings", href: "/" },
   ]
 
   const isActive = (href: string) => {
@@ -48,8 +47,8 @@ export function AppSidebar() {
             key={item.href}
             href={item.href}
             className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${isActive(item.href)
-                ? "bg-sidebar-primary text-sidebar-primary-foreground"
-                : "text-sidebar-foreground hover:bg-sidebar-accent"
+              ? "bg-sidebar-primary text-sidebar-primary-foreground"
+              : "text-sidebar-foreground hover:bg-sidebar-accent"
               }`}
           >
             <item.icon className="w-5 h-5" />
