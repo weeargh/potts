@@ -89,8 +89,8 @@ export default function Dashboard() {
 
   return (
     <AppLayout>
-      {/* Header - border extends full width to meet sidebar */}
-      <div className="border-b border-border bg-card -mx-px">
+      {/* Header - border meets sidebar by extending left with negative margin */}
+      <div className="border-b border-border bg-card ml-[-1px]">
         <div className="flex items-center justify-between px-8 py-6">
           <div>
             <h1 className="text-2xl font-semibold text-foreground">Recordings</h1>
