@@ -61,7 +61,7 @@ export async function PATCH(request: Request) {
                 )
             }
             // Ensure all items are strings and remove duplicates
-            const vocabulary = [...new Set(
+            const vocabulary: string[] = [...new Set(
                 body.customVocabulary
                     .filter((item: unknown) => typeof item === "string" && item.trim())
                     .map((item: string) => item.trim())
