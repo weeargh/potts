@@ -1,0 +1,14 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+# Pre-commit hook: Run tests before allowing commit
+echo "🧪 Running tests before commit..."
+npm test
+
+if [ $? -ne 0 ]; then
+  echo "❌ Tests failed! Commit aborted."
+  echo "Please fix the failing tests before committing."
+  exit 1
+fi
+
+echo "✅ Tests passed! Proceeding with commit."
