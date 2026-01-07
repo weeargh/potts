@@ -66,6 +66,7 @@ export function UpcomingEvents({ onRefresh }: UpcomingEventsProps) {
                     event_id: event.event_id,
                     series_id: event.series_id,
                     bot_name: event.title,
+                    all_occurrences: !!event.series_id,  // Schedule all for recurring
                 }),
             })
 

@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
         await ensureUserExists(user)
 
         const body = await request.json()
-        const { calendar_id, event_id, series_id, bot_name } = body
+        const { calendar_id, event_id, series_id, bot_name, all_occurrences } = body
 
         if (!calendar_id || !event_id) {
             return NextResponse.json(
@@ -33,6 +33,7 @@ export async function POST(request: NextRequest) {
             botName: bot_name || "Notula - AI Notetaker",
             seriesId: series_id, // Pass series_id to fix MeetingBaas API validation
             userId: user.id,     // Pass user_id for webhook association
+            allOccurrences: all_occurrences || false,  // Schedule all occurrences for recurring
         })
 
         return NextResponse.json({

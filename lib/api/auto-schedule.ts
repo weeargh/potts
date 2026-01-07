@@ -64,6 +64,8 @@ export async function autoScheduleBotsForEvents(calendarId?: string): Promise<Au
                         await scheduleCalendarBot(cal.calendar_id, event.event_id, {
                             botName: event.title,
                             seriesId: event.series_id,
+                            // Schedule ALL occurrences for recurring events
+                            allOccurrences: !!event.series_id,
                         })
                         result.scheduled++
                         log.info("Scheduled bot for event", { title: event.title, start_time: event.start_time })
