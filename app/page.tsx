@@ -51,12 +51,6 @@ export default function Dashboard() {
         ai.description?.toLowerCase().includes(searchLower)
       )) return true
 
-      // Search in questions/answers
-      if (meeting.questions?.some((q: { question?: string; answer?: string }) =>
-        q.question?.toLowerCase().includes(searchLower) ||
-        q.answer?.toLowerCase().includes(searchLower)
-      )) return true
-
       return false
     })
     .filter((meeting) => {
