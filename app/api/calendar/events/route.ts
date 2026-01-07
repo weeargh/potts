@@ -95,7 +95,7 @@ export async function GET(request: NextRequest) {
                 calendars: mappedCalendars
             }, {
                 headers: {
-                    'Cache-Control': 'private, max-age=300, stale-while-revalidate=600'
+                    'Cache-Control': 'private, max-age=60, stale-while-revalidate=300'
                 }
             })
         }
@@ -120,7 +120,7 @@ export async function GET(request: NextRequest) {
             events: events.filter((e: { meeting_url?: string }) => e.meeting_url)
         }, {
             headers: {
-                'Cache-Control': 'private, max-age=300, stale-while-revalidate=600'
+                'Cache-Control': 'private, max-age=60, stale-while-revalidate=300'
             }
         })
     } catch (error) {
@@ -134,8 +134,8 @@ export async function GET(request: NextRequest) {
 }
 
 async function getEventsWithCache(calendarId: string, forceRefresh: boolean, startDate?: string | null, endDate?: string | null) {
-    // 1. Calculate cache expiry (8 hours ago)
-    const cacheExpiry = new Date(Date.now() - 8 * 60 * 60 * 1000)
+    // 1. Calculate cache expiry (30 minutes ago - fresher data for accuracy)
+    const cacheExpiry = new Date(Date.now() - 30 * 60 * 1000)
 
     // 2. Check DB for valid cache - single query that returns data if cache is valid
     if (!forceRefresh) {
