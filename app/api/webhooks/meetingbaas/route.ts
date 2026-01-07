@@ -903,10 +903,10 @@ async function handleCalendarEventCreated(data: {
         if (eventStart <= new Date()) continue
 
         // Schedule the bot with user_id
+        // Note: Don't pass botName - let it use default "Notula - AI Notetaker"
+        // The meeting title is stored separately in the Meeting record
         try {
-            const botName = instance.title
             const result = await scheduleCalendarBot(data.calendar_id, instance.event_id, {
-                botName,
                 seriesId: data.series_id,
                 userId,  // Pass userId for webhook association
                 allOccurrences: data.event_type === "recurring",  // Schedule ALL instances for recurring
@@ -922,7 +922,7 @@ async function handleCalendarEventCreated(data: {
                 data: {
                     botId: placeholderBotId,
                     userId,
-                    botName,
+                    botName: instance.title,  // Store meeting title for display, bot uses "Notula" in call
                     meetingUrl: instance.meeting_url,
                     calendarEventId: instance.event_id,  // Store event_id for lookup
                     status: "scheduled",
@@ -1000,9 +1000,7 @@ async function handleCalendarEventUpdated(data: {
             }
 
             try {
-                const botName = instance.title
                 const result = await scheduleCalendarBot(data.calendar_id, instance.event_id, {
-                    botName,
                     seriesId: data.series_id,
                     userId,
                 })
@@ -1015,7 +1013,7 @@ async function handleCalendarEventUpdated(data: {
                     data: {
                         botId: placeholderBotId,
                         userId,
-                        botName,
+                        botName: instance.title,  // Store meeting title for display
                         meetingUrl: instance.meeting_url,
                         calendarEventId: instance.event_id,  // Store event_id for lookup
                         status: "scheduled",
