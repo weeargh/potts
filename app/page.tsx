@@ -32,8 +32,8 @@ export default function Dashboard() {
       meeting.summary?.overview?.toLowerCase().includes(searchQuery.toLowerCase())
     )
     .filter((meeting) => {
-      // ALWAYS exclude queued/joining meetings - these are scheduled future meetings, not recordings
-      const excludedStatuses = ["queued", "joining_call", "in_waiting_room"]
+      // ALWAYS exclude scheduled/queued meetings - these are future meetings, not recordings
+      const excludedStatuses = ["queued", "scheduled", "joining_call", "in_waiting_room"]
       if (excludedStatuses.includes(meeting.status)) {
         return false
       }

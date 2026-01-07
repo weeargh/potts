@@ -107,9 +107,9 @@ export async function GET(request: NextRequest) {
     const meetings = await prisma.meeting.findMany({
       where: {
         userId: user.id,
-        // Exclude queued/joining meetings by default (these are scheduled future meetings)
+        // Exclude scheduled/queued meetings by default (these are future meetings, not recordings)
         ...(excludeQueued && !statusFilter && {
-          status: { notIn: ["queued", "joining_call", "in_waiting_room"] }
+          status: { notIn: ["queued", "scheduled", "joining_call", "in_waiting_room"] }
         }),
         // If specific status requested, filter by that
         ...(statusFilter && { status: statusFilter }),
