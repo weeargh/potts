@@ -496,7 +496,41 @@ export async function scheduleCalendarBot(
     event_id: eventId,
   }
 
-  return apiPost<{ bot_id: string }>(`/calendars/${calendarId}/bots`, body)
+  // MeetingBaas may return different field names for bot_id
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const response = await apiPost<any>(`/calendars/${calendarId}/bots`, body)
+
+  // Log the full response for debugging
+  console.log('[scheduleCalendarBot] API response:', JSON.stringify(response))
+
+  // Handle different possible response formats:
+  // - Direct: { bot_id: "..." }
+  // - SDK format: { scheduled_recording: { id: "..." } }
+  // - Nested: { data: { bot_id: "..." } }
+  let botId: string | undefined
+  if (response?.bot_id) {
+    botId = response.bot_id
+  } else if (response?.scheduled_recording?.id) {
+    botId = response.scheduled_recording.id
+  } else if (response?.data?.bot_id) {
+    botId = response.data.bot_id
+  } else if (response?.id) {
+    botId = response.id
+  } else if (typeof response === 'string') {
+    // Sometimes APIs return just the ID as a string
+    botId = response
+  }
+
+  if (!botId) {
+    console.error('[scheduleCalendarBot] Could not find bot_id in response:', JSON.stringify(response))
+    throw new MeetingBaasError(
+      `Failed to get bot_id from response: ${JSON.stringify(response)}`,
+      'INVALID_RESPONSE',
+      500
+    )
+  }
+
+  return { bot_id: botId }
 }
 
 /**
