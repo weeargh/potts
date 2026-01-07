@@ -22,6 +22,9 @@ export default function Dashboard() {
   const [showOnlyCompleted, setShowOnlyCompleted] = useState(true)
   const [showAll, setShowAll] = useState(false)
 
+  // DEBUG: Log what we're getting from API
+  console.log('[Dashboard] meetings from API:', meetings.length, 'statuses:', meetings.map(m => m.status))
+
   // Filter by search query and status
   const filteredMeetings = meetings
     .filter((meeting) =>
