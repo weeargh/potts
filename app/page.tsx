@@ -47,7 +47,7 @@ export default function Dashboard() {
       if (meeting.summary?.nextSteps?.some((ns: string) => ns.toLowerCase().includes(searchLower))) return true
 
       // Search in action items
-      if (meeting.action_items?.some((ai: { description?: string }) =>
+      if (meeting.actionItems?.some((ai: { description?: string }) =>
         ai.description?.toLowerCase().includes(searchLower)
       )) return true
 
