@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import { AppLayout } from "@/components/app-layout"
 import { Button } from "@/components/ui/button"
-import { Calendar, Plus, Trash2, Loader2, Mail, CheckCircle, AlertCircle, BookOpen, X } from "lucide-react"
+import { Calendar, Plus, Trash2, Loader2, Mail, CheckCircle, AlertCircle, BookOpen, X, RefreshCw } from "lucide-react"
 
 interface ConnectedCalendar {
     uuid: string
@@ -26,6 +26,9 @@ export default function SettingsPage() {
     const [newTerm, setNewTerm] = useState("")
     const [vocabLoading, setVocabLoading] = useState(true)
     const [vocabSaving, setVocabSaving] = useState(false)
+
+    // Force Sync state
+    const [isSyncing, setIsSyncing] = useState(false)
 
     // Combined fetch function for parallel loading
     const fetchAllData = async () => {
@@ -244,11 +247,42 @@ export default function SettingsPage() {
                     </div>
 
                     {calendars.length > 0 && (
-                        <div className="px-6 py-3 bg-muted/30 border-t border-border">
+                        <div className="px-6 py-3 bg-muted/30 border-t border-border flex items-center justify-between">
                             <p className="text-xs text-muted-foreground">
                                 {calendars.length} calendar{calendars.length !== 1 ? "s" : ""} connected.
                                 Meetings with video conferencing links will be automatically recorded.
                             </p>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={async () => {
+                                    setIsSyncing(true)
+                                    setError(null)
+                                    try {
+                                        const response = await fetch("/api/calendar/force-sync", { method: "POST" })
+                                        const data = await response.json()
+                                        if (response.ok) {
+                                            setSuccess(`Force sync complete: ${data.scheduled} scheduled, ${data.skipped} skipped`)
+                                            setTimeout(() => setSuccess(null), 5000)
+                                        } else {
+                                            setError(data.error || "Force sync failed")
+                                        }
+                                    } catch {
+                                        setError("Force sync failed")
+                                    } finally {
+                                        setIsSyncing(false)
+                                    }
+                                }}
+                                disabled={isSyncing}
+                                className="gap-2"
+                            >
+                                {isSyncing ? (
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                    <RefreshCw className="w-3.5 h-3.5" />
+                                )}
+                                Force Sync
+                            </Button>
                         </div>
                     )}
                 </section>
