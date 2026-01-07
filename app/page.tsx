@@ -30,12 +30,17 @@ export default function Dashboard() {
       meeting.summary?.overview?.toLowerCase().includes(searchQuery.toLowerCase())
     )
     .filter((meeting) => {
-      // When showOnlyCompleted is true, only show completed/failed meetings (past recordings)
-      // Exclude queued/joining/in_waiting_room which are scheduled future meetings
+      // ALWAYS exclude queued/joining meetings - these are scheduled future meetings, not recordings
+      const excludedStatuses = ["queued", "joining_call", "in_waiting_room"]
+      if (excludedStatuses.includes(meeting.status)) {
+        return false
+      }
+
+      // When showOnlyCompleted is true, only show completed/failed
       if (showOnlyCompleted) {
         return meeting.status === "completed" || meeting.status === "failed"
       }
-      return true // Show all statuses including queued, etc.
+      return true // Show all except queued
     })
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
 
