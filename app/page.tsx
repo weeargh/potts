@@ -25,12 +25,40 @@ export default function Dashboard() {
   // DEBUG: Log what we're getting from API
   console.log('[Dashboard] meetings from API:', meetings.length, 'statuses:', meetings.map(m => m.status))
 
-  // Filter by search query only - API already filters past meetings
+  // Extended search - searches title, summary, action items, key points, questions
+  const searchLower = searchQuery.toLowerCase()
   const filteredMeetings = meetings
-    .filter((meeting) =>
-      meeting.bot_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      meeting.summary?.overview?.toLowerCase().includes(searchQuery.toLowerCase())
-    )
+    .filter((meeting) => {
+      if (!searchQuery) return true
+
+      // Search in title
+      if (meeting.bot_name.toLowerCase().includes(searchLower)) return true
+
+      // Search in summary overview
+      if (meeting.summary?.overview?.toLowerCase().includes(searchLower)) return true
+
+      // Search in key points
+      if (meeting.summary?.keyPoints?.some((kp: string) => kp.toLowerCase().includes(searchLower))) return true
+
+      // Search in decisions
+      if (meeting.summary?.decisions?.some((d: string) => d.toLowerCase().includes(searchLower))) return true
+
+      // Search in next steps
+      if (meeting.summary?.nextSteps?.some((ns: string) => ns.toLowerCase().includes(searchLower))) return true
+
+      // Search in action items
+      if (meeting.action_items?.some((ai: { description?: string }) =>
+        ai.description?.toLowerCase().includes(searchLower)
+      )) return true
+
+      // Search in questions/answers
+      if (meeting.questions?.some((q: { question?: string; answer?: string }) =>
+        q.question?.toLowerCase().includes(searchLower) ||
+        q.answer?.toLowerCase().includes(searchLower)
+      )) return true
+
+      return false
+    })
     .filter((meeting) => {
       // When showOnlyCompleted is true, only show completed/failed
       if (showOnlyCompleted) {
@@ -67,8 +95,8 @@ export default function Dashboard() {
 
   return (
     <AppLayout>
-      {/* Header */}
-      <div className="border-b border-border bg-card">
+      {/* Header - border extends full width to meet sidebar */}
+      <div className="border-b border-border bg-card -mx-px">
         <div className="flex items-center justify-between px-8 py-6">
           <div>
             <h1 className="text-2xl font-semibold text-foreground">Recordings</h1>
