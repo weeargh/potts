@@ -3,8 +3,8 @@ import type { CalendarEvent } from "@/lib/api/meetingbaas"
 
 const fetcher = (url: string) => fetch(url).then(r => r.json())
 
-// 4 hours in milliseconds
-const FOUR_HOURS = 4 * 60 * 60 * 1000
+// 30 minutes in milliseconds - shorter cache for fresher data
+const THIRTY_MINUTES = 30 * 60 * 1000
 
 interface CalendarEventsResponse {
     events: CalendarEvent[]
@@ -21,9 +21,9 @@ interface CalendarEventsResponse {
  * Hook for fetching calendar events with SWR caching
  *
  * - Shows cached data immediately (stale-while-revalidate)
- * - Auto-revalidates every 4 hours
+ * - Auto-revalidates every 30 minutes
+ * - Revalidates on tab focus for fresh data
  * - Manual refresh available via mutate()
- * - Dedupes requests within 1 minute
  */
 export function useCalendarEvents(options?: { forceRefresh?: boolean }) {
     const url = options?.forceRefresh
@@ -34,16 +34,16 @@ export function useCalendarEvents(options?: { forceRefresh?: boolean }) {
         url,
         fetcher,
         {
-            // Show stale data immediately, revalidate in background
-            revalidateOnFocus: false,
-            revalidateOnReconnect: false,
-            // Auto-refresh every 4 hours
-            refreshInterval: FOUR_HOURS,
-            // Dedupe requests within 1 minute
-            dedupingInterval: 60000,
+            // Revalidate on focus for fresh data when switching tabs
+            revalidateOnFocus: true,
+            revalidateOnReconnect: true,
+            // Auto-refresh every 30 minutes
+            refreshInterval: THIRTY_MINUTES,
+            // Dedupe requests within 30 seconds
+            dedupingInterval: 30000,
             // Keep previous data while loading new data
             keepPreviousData: true,
-            // Don't retry on error (to avoid hammering the API)
+            // Retry on error
             errorRetryCount: 2,
         }
     )

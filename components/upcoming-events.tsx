@@ -57,6 +57,10 @@ export function UpcomingEvents({ onRefresh }: UpcomingEventsProps) {
 
     async function handleScheduleBot(event: CalendarEvent) {
         setSchedulingEventId(event.event_id)
+
+        // OPTIMISTIC UPDATE: Mark as scheduled immediately for snappy UI
+        setScheduledEvents(prev => new Set([...prev, event.event_id]))
+
         try {
             const response = await fetch("/api/calendar/schedule-bot", {
                 method: "POST",
@@ -71,11 +75,25 @@ export function UpcomingEvents({ onRefresh }: UpcomingEventsProps) {
             })
 
             if (response.ok) {
-                setScheduledEvents(prev => new Set([...prev, event.event_id]))
+                // Refresh data from server to sync state
+                await refresh()
                 onRefresh?.()
+            } else {
+                // Revert optimistic update on failure
+                setScheduledEvents(prev => {
+                    const next = new Set(prev)
+                    next.delete(event.event_id)
+                    return next
+                })
             }
         } catch (error) {
             console.error("Failed to schedule bot:", error)
+            // Revert optimistic update on error
+            setScheduledEvents(prev => {
+                const next = new Set(prev)
+                next.delete(event.event_id)
+                return next
+            })
         } finally {
             setSchedulingEventId(null)
         }
