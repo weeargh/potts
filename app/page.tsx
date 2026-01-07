@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Search, Plus, Volume2, ChevronDown, ChevronUp } from "lucide-react"
+import { Search, Plus, Volume2, ChevronDown } from "lucide-react"
 import { AppLayout } from "@/components/app-layout"
 import { MeetingListItem } from "@/components/meeting-list-item"
 import { Button } from "@/components/ui/button"

@@ -52,7 +52,7 @@ async function cleanupOrphanedEvents(dryRun: boolean = false) {
         if (!acc[event.calendarId]) {
             acc[event.calendarId] = []
         }
-        acc[event.calendarId].push(event)
+        acc[event.calendarId]!.push(event)
         return acc
     }, {} as Record<string, typeof orphanedEvents>)
 
