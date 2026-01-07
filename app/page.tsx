@@ -25,24 +25,18 @@ export default function Dashboard() {
   // DEBUG: Log what we're getting from API
   console.log('[Dashboard] meetings from API:', meetings.length, 'statuses:', meetings.map(m => m.status))
 
-  // Filter by search query and status
+  // Filter by search query only - API already filters past meetings
   const filteredMeetings = meetings
     .filter((meeting) =>
       meeting.bot_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       meeting.summary?.overview?.toLowerCase().includes(searchQuery.toLowerCase())
     )
     .filter((meeting) => {
-      // ALWAYS exclude scheduled/queued meetings - these are future meetings, not recordings
-      const excludedStatuses = ["queued", "scheduled", "joining_call", "in_waiting_room"]
-      if (excludedStatuses.includes(meeting.status)) {
-        return false
-      }
-
       // When showOnlyCompleted is true, only show completed/failed
       if (showOnlyCompleted) {
         return meeting.status === "completed" || meeting.status === "failed"
       }
-      return true // Show all except queued
+      return true
     })
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
 

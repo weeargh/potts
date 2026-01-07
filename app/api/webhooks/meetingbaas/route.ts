@@ -927,11 +927,12 @@ async function handleCalendarEventCreated(data: {
                     calendarEventId: instance.event_id,  // Store event_id for lookup
                     status: "scheduled",
                     processingStatus: "pending",
+                    scheduledStart: new Date(instance.start_time),
+                    scheduledEnd: new Date(instance.end_time),
                     extra: {
                         user_id: userId,
                         calendar_id: data.calendar_id,
                         event_id: instance.event_id,
-                        scheduled_start: instance.start_time,
                     },
                 }
             })

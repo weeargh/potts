@@ -99,17 +99,22 @@ export async function GET(request: NextRequest) {
     const limitParam = url.searchParams.get("limit")
     const limit = limitParam ? Math.min(parseInt(limitParam, 10), 100) : 20
 
-    // Status filter - by default exclude queued/scheduled meetings (future meetings)
+    // Status filter - by default only show past meetings (where scheduledEnd < now)
     const statusFilter = url.searchParams.get("status")
-    const excludeQueued = url.searchParams.get("exclude_queued") !== "false"
+    const showFuture = url.searchParams.get("show_future") === "true"
+    const now = new Date()
 
     // Fetch meetings from database
     const meetings = await prisma.meeting.findMany({
       where: {
         userId: user.id,
-        // Exclude scheduled/queued meetings by default (these are future meetings, not recordings)
-        ...(excludeQueued && !statusFilter && {
-          status: { notIn: ["queued", "scheduled", "joining_call", "in_waiting_room"] }
+        // Default: only show past meetings (scheduledEnd < now OR scheduledEnd is null AND has completed)
+        // If scheduledEnd is null, fall back to checking status
+        ...(!showFuture && !statusFilter && {
+          OR: [
+            { scheduledEnd: { lt: now } },  // Meeting ended
+            { scheduledEnd: null, status: { in: ["completed", "failed", "transcribing"] } }  // No schedule but finished
+          ]
         }),
         // If specific status requested, filter by that
         ...(statusFilter && { status: statusFilter }),

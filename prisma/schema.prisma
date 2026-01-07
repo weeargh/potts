@@ -79,6 +79,9 @@ model Meeting {
   processingStatus String?       @map("processing_status")
   // Extra data from MeetingBaas (includes user_id for calendar bots)
   extra            Json?
+  // Meeting time (from calendar event) - used to determine past vs future meetings
+  scheduledStart   DateTime?     @map("scheduled_start")
+  scheduledEnd     DateTime?     @map("scheduled_end")
   // Timestamps
   createdAt        DateTime      @default(now()) @map("created_at")
   updatedAt        DateTime      @updatedAt @map("updated_at")
