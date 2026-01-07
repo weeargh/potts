@@ -30,12 +30,12 @@ export default function Dashboard() {
       meeting.summary?.overview?.toLowerCase().includes(searchQuery.toLowerCase())
     )
     .filter((meeting) => {
-      // When showOnlyCompleted is true, only show completed meetings
-      // When showOnlyCompleted is false (show all clicked), show completed and failed
+      // When showOnlyCompleted is true, only show completed/failed meetings (past recordings)
+      // Exclude queued/joining/in_waiting_room which are scheduled future meetings
       if (showOnlyCompleted) {
-        return meeting.status === "completed"
+        return meeting.status === "completed" || meeting.status === "failed"
       }
-      return true // Show all statuses including failed, queued, etc.
+      return true // Show all statuses including queued, etc.
     })
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
 
