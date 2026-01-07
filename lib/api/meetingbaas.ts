@@ -442,6 +442,11 @@ export async function listCalendarEvents(
 
 /**
  * Schedule a bot for a calendar event
+ *
+ * NOTE: For calendar bots, MeetingBaas does NOT return a bot_id immediately!
+ * The bot_id is only assigned when the bot actually joins the meeting.
+ * The response contains the updated event, not a bot_id.
+ * We return the event_id instead, which can be used to look up the meeting later.
  */
 export async function scheduleCalendarBot(
   calendarId: string,
@@ -458,7 +463,7 @@ export async function scheduleCalendarBot(
       noOneJoinedTimeout?: number
     }
   }
-): Promise<{ bot_id: string }> {
+): Promise<{ event_id: string; bot_id?: string }> {
   if (!validateCalendarId(calendarId)) {
     throw new MeetingBaasError("Invalid calendar ID format", "VALIDATION_ERROR", 400)
   }
@@ -496,17 +501,15 @@ export async function scheduleCalendarBot(
     event_id: eventId,
   }
 
-  // MeetingBaas may return different field names for bot_id
+  // MeetingBaas returns the updated event, NOT a bot_id for calendar bots
+  // The bot_id is only assigned when the bot actually joins
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const response = await apiPost<any>(`/calendars/${calendarId}/bots`, body)
 
   // Log the full response for debugging
   console.log('[scheduleCalendarBot] API response:', JSON.stringify(response))
 
-  // Handle different possible response formats:
-  // - Direct: { bot_id: "..." }
-  // - SDK format: { scheduled_recording: { id: "..." } }
-  // - Nested: { data: { bot_id: "..." } }
+  // Try to extract bot_id if it exists (it usually won't for calendar scheduling)
   let botId: string | undefined
   if (response?.bot_id) {
     botId = response.bot_id
@@ -514,23 +517,11 @@ export async function scheduleCalendarBot(
     botId = response.scheduled_recording.id
   } else if (response?.data?.bot_id) {
     botId = response.data.bot_id
-  } else if (response?.id) {
-    botId = response.id
-  } else if (typeof response === 'string') {
-    // Sometimes APIs return just the ID as a string
-    botId = response
   }
 
-  if (!botId) {
-    console.error('[scheduleCalendarBot] Could not find bot_id in response:', JSON.stringify(response))
-    throw new MeetingBaasError(
-      `Failed to get bot_id from response: ${JSON.stringify(response)}`,
-      'INVALID_RESPONSE',
-      500
-    )
-  }
-
-  return { bot_id: botId }
+  // For calendar bots, we return the event_id as the primary identifier
+  // The bot_id will be provided later in the bot.completed webhook
+  return { event_id: eventId, bot_id: botId }
 }
 
 /**

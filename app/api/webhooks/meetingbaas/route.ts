@@ -236,53 +236,89 @@ async function handleBotCompleted(data: BotCompletedData) {
 
     try {
         // STRATEGY: MeetingBaas does NOT return 'extra' field in webhooks!
-        // We MUST look up the existing Meeting record by bot_id first.
-        // The Meeting record was created either:
-        // 1. When user created bot via POST /api/bots
-        // 2. When calendar auto-scheduled the bot
+        // For calendar bots, the bot_id is only assigned when the bot joins.
+        // We look up by: 1) bot_id, 2) calendarEventId (event_id), 3) extra.event_id
+
+        let meeting = null
+        let userId: string | null = null
 
         // 1. First, try to find existing meeting record by bot_id
-        let meeting = await prisma.meeting.findUnique({
+        meeting = await prisma.meeting.findUnique({
             where: { botId: bot_id }
         })
 
-        let userId: string | null = null
-
         if (meeting) {
-            // Found existing meeting - use its userId
             userId = meeting.userId
-            webhookLogger.info("Found existing meeting record", {
+            webhookLogger.info("Found existing meeting by bot_id", {
                 bot_id,
                 meeting_id: meeting.id,
                 user_id: userId,
             })
-        } else {
-            // No meeting record - try to extract userId from extra (unlikely to work)
-            webhookLogger.warn("No existing meeting record found for bot", { bot_id })
-            userId = await extractUserId(data.extra)
+        }
 
-            // Also try to look up via event_id if this was a calendar-scheduled bot
-            if (!userId && data.event_id) {
-                webhookLogger.info("Attempting to find user via event_id", { event_id: data.event_id })
-                // Look up any meeting with this event_id in extra
-                const meetingByEvent = await prisma.meeting.findFirst({
-                    where: {
-                        extra: {
-                            path: ['event_id'],
-                            equals: data.event_id
-                        }
-                    }
+        // 2. If not found, try to look up by calendarEventId (for calendar-scheduled bots)
+        if (!meeting && data.event_id) {
+            webhookLogger.info("Looking up meeting by calendarEventId", { event_id: data.event_id })
+            meeting = await prisma.meeting.findFirst({
+                where: { calendarEventId: data.event_id }
+            })
+            if (meeting) {
+                userId = meeting.userId
+                webhookLogger.info("Found meeting by calendarEventId", {
+                    bot_id,
+                    event_id: data.event_id,
+                    meeting_id: meeting.id,
+                    user_id: userId,
+                    old_bot_id: meeting.botId,
                 })
-                if (meetingByEvent) {
-                    userId = meetingByEvent.userId
-                    meeting = meetingByEvent
-                    webhookLogger.info("Found meeting via event_id lookup", {
-                        bot_id,
-                        event_id: data.event_id,
-                        meeting_id: meetingByEvent.id,
+
+                // Update the meeting with the real bot_id (replace placeholder)
+                if (meeting.botId !== bot_id) {
+                    await prisma.meeting.update({
+                        where: { id: meeting.id },
+                        data: { botId: bot_id }
+                    })
+                    webhookLogger.info("Updated meeting with real bot_id", {
+                        meeting_id: meeting.id,
+                        old_bot_id: meeting.botId,
+                        new_bot_id: bot_id,
                     })
                 }
             }
+        }
+
+        // 3. If still not found, try extra.event_id lookup (JSON field)
+        if (!meeting && data.event_id) {
+            webhookLogger.info("Looking up meeting by extra.event_id", { event_id: data.event_id })
+            meeting = await prisma.meeting.findFirst({
+                where: {
+                    extra: {
+                        path: ['event_id'],
+                        equals: data.event_id
+                    }
+                }
+            })
+            if (meeting) {
+                userId = meeting.userId
+                webhookLogger.info("Found meeting via extra.event_id", {
+                    bot_id,
+                    event_id: data.event_id,
+                    meeting_id: meeting.id,
+                })
+
+                // Update with real bot_id
+                if (meeting.botId !== bot_id) {
+                    await prisma.meeting.update({
+                        where: { id: meeting.id },
+                        data: { botId: bot_id }
+                    })
+                }
+            }
+        }
+
+        // 4. Last resort - try to extract userId from extra (unlikely to work)
+        if (!userId) {
+            userId = await extractUserId(data.extra)
         }
 
         if (!userId) {
@@ -854,13 +890,18 @@ async function handleCalendarEventCreated(data: {
             })
 
             // Create Meeting record in Supabase immediately
-            // This ensures the webhook can find the meeting even if extra is not returned
+            // NOTE: For calendar bots, bot_id is NOT available until the bot joins!
+            // We use a placeholder bot_id and store the event_id for lookup
+            // The real bot_id will be updated when bot.completed webhook arrives
+            const placeholderBotId = result.bot_id || `pending-${instance.event_id}`
+
             await prisma.meeting.create({
                 data: {
-                    botId: result.bot_id,
+                    botId: placeholderBotId,
                     userId,
                     botName,
                     meetingUrl: instance.meeting_url,
+                    calendarEventId: instance.event_id,  // Store event_id for lookup
                     status: "scheduled",
                     processingStatus: "pending",
                     extra: {
@@ -873,7 +914,7 @@ async function handleCalendarEventCreated(data: {
             })
 
             webhookLogger.info("Auto-scheduled bot for event and created meeting record", {
-                bot_id: result.bot_id,
+                bot_id: placeholderBotId,
                 event_id: instance.event_id,
                 title: instance.title,
                 start_time: instance.start_time,
@@ -943,12 +984,16 @@ async function handleCalendarEventUpdated(data: {
                 })
 
                 // Create Meeting record in Supabase immediately
+                // NOTE: For calendar bots, bot_id is NOT available until the bot joins!
+                const placeholderBotId = result.bot_id || `pending-${instance.event_id}`
+
                 await prisma.meeting.create({
                     data: {
-                        botId: result.bot_id,
+                        botId: placeholderBotId,
                         userId,
                         botName,
                         meetingUrl: instance.meeting_url,
+                        calendarEventId: instance.event_id,  // Store event_id for lookup
                         status: "scheduled",
                         processingStatus: "pending",
                         extra: {
@@ -961,7 +1006,7 @@ async function handleCalendarEventUpdated(data: {
                 })
 
                 webhookLogger.info("Scheduled bot for updated event and created meeting record", {
-                    bot_id: result.bot_id,
+                    bot_id: placeholderBotId,
                     event_id: instance.event_id,
                     title: instance.title,
                     user_id: userId,
