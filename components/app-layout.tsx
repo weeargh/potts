@@ -23,7 +23,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             <AppSidebar />
           </SheetContent>
         </Sheet>
-        <span className="ml-2 font-semibold">Mekari Callnote</span>
+        <span className="ml-2 font-semibold">Notula</span>
       </div>
 
       <main className="flex-1 overflow-auto md:ml-0 pt-16 md:pt-0">

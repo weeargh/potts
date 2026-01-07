@@ -26,7 +26,7 @@ export function CreateMeetingForm() {
         },
         body: JSON.stringify({
           meeting_url: meetingUrl,
-          bot_name: botName || "Mekari Callnote",
+          bot_name: botName || "Notula",
         }),
       })
 
@@ -66,7 +66,7 @@ export function CreateMeetingForm() {
         <Input
           id="bot-name"
           type="text"
-          placeholder="Mekari Callnote"
+          placeholder="Notula"
           value={botName}
           onChange={(e) => setBotName(e.target.value)}
         />

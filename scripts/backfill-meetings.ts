@@ -123,7 +123,7 @@ async function main() {
         create: {
           userId,
           botId: bot.bot_id,
-          botName: details.bot_name || 'Potts Recorder',
+          botName: details.bot_name || 'Notula Recorder',
           meetingUrl: details.meeting_url || '',
           status: details.status,
           durationSeconds: details.duration_seconds,

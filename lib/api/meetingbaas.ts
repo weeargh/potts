@@ -473,7 +473,7 @@ export async function scheduleCalendarBot(
     event_id: eventId,
     ...(botConfig?.seriesId && { series_id: botConfig.seriesId }),
     all_occurrences: botConfig?.allOccurrences || false,
-    bot_name: botConfig?.botName || "Potts Recorder",
+    bot_name: botConfig?.botName || "Notula Recorder",
     ...(botConfig?.botImage && { bot_image: botConfig.botImage }),
     recording_mode: botConfig?.recordingMode || "speaker_view",
     ...getTranscriptionConfig(),
@@ -496,7 +496,7 @@ export async function scheduleCalendarBot(
   // Even if userId is not available, the webhook can look up via calendar_id
   body.extra = {
     ...(botConfig?.userId && { user_id: botConfig.userId }),
-    bot_name: botConfig?.botName || "Potts Recorder",
+    bot_name: botConfig?.botName || "Notula Recorder",
     calendar_id: calendarId,
     event_id: eventId,
   }

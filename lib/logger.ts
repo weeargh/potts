@@ -1,5 +1,5 @@
 /**
- * Structured logging utility for Potts-App
+ * Structured logging utility for Notula
  * Provides consistent logging with log levels and structured metadata
  */
 

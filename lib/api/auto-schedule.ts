@@ -62,7 +62,7 @@ export async function autoScheduleBotsForEvents(calendarId?: string): Promise<Au
                 for (const event of eventsToSchedule) {
                     try {
                         await scheduleCalendarBot(cal.calendar_id, event.event_id, {
-                            botName: `Potts - ${event.title}`,
+                            botName: `Notula - ${event.title}`,
                             seriesId: event.series_id,
                         })
                         result.scheduled++

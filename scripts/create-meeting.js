@@ -30,7 +30,7 @@ async function main() {
         data: {
             userId: calendarAccount.userId,
             botId: '6a4c0136-cf52-4fbb-9fb2-e5ca2a21687f',
-            botName: 'Potts - Test 11:35',
+            botName: 'Notula - Test 11:35',
             meetingUrl: 'https://meet.google.com/vef-hztr-xjb',
             status: 'completed',
             durationSeconds: 787,

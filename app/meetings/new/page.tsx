@@ -11,7 +11,7 @@ export default function NewMeetingPage() {
           <div>
             <h1 className="text-lg font-semibold">Create Meeting Bot</h1>
             <p className="text-sm text-muted-foreground">
-              Join a meeting with Mekari Callnote and get AI-powered transcription
+              Join a meeting with Notula and get AI-powered transcription
             </p>
           </div>
         </div>

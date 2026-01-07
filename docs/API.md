@@ -1,6 +1,6 @@
-# Potts API Documentation
+# Notula API Documentation
 
-This document describes all API endpoints and webhooks in the Potts application.
+This document describes all API endpoints and webhooks in the Notula application.
 
 ## Overview
 
@@ -93,7 +93,7 @@ Schedules a recording bot for a specific calendar event.
   "calendar_id": "uuid",
   "event_id": "uuid",
   "series_id": "uuid",
-  "bot_name": "Potts - Team Meeting"
+  "bot_name": "Notula - Team Meeting"
 }
 ```
 

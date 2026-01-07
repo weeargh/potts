@@ -38,15 +38,15 @@ function LoginForm() {
         {/* Logo */}
         <div className="flex flex-col items-center">
           <Image
-            src="/callnotelogo.png"
-            alt="Mekari Callnote"
+            src="/notula-logo.png"
+            alt="Notula"
             width={200}
             height={50}
             className="h-12 w-auto mb-2"
             priority
           />
           <h1 className="text-2xl font-semibold text-foreground mt-6">
-            Welcome to Mekari Callnote
+            Welcome to Notula
           </h1>
           <p className="text-sm text-muted-foreground mt-2">
             Sign in to manage your meeting recordings

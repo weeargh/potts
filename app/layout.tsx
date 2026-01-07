@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 })
 
 export const metadata: Metadata = {
-  title: "Mekari Callnote",
+  title: "Notula",
   description: "AI-powered meeting transcription and analysis",
 }
 

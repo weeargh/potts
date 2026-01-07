@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
 
     const result = await createMeetingBot({
       meeting_url: body.meeting_url,
-      bot_name: body.bot_name || "Potts Recorder",
+      bot_name: body.bot_name || "Notula Recorder",
       recording_mode: body.recording_mode || "speaker_view",
       user_id: user.id,  // Pass user_id for webhook association
     })
@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
       data: {
         botId: result.bot_id,
         userId: user.id,
-        botName: body.bot_name || "Potts Recorder",
+        botName: body.bot_name || "Notula Recorder",
         meetingUrl: body.meeting_url,
         status: result.status || "queued",
         processingStatus: "pending",

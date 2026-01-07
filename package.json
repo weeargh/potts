@@ -1,5 +1,5 @@
 {
-  "name": "potts-app",
+  "name": "notula-app",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -7,6 +7,11 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "precommit": "npm test && npm run lint",
+    "preflight": "npm test && npm run lint && npm run build",
     "postinstall": "prisma generate"
   },
   "dependencies": {

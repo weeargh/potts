@@ -131,7 +131,7 @@ async function processWebhook(payload: { event: string; data: unknown }, log: ty
             },
             timestamp: Date.now(),
         }),
-    }).catch(() => {})
+    }).catch(() => { })
     // #endregion
 
     log.info(`Webhook received: ${event}`, {
@@ -351,7 +351,7 @@ async function handleBotCompleted(data: BotCompletedData) {
                 data: {
                     userId,
                     botId: bot_id,
-                    botName: botDetails.bot_name || (data.extra?.bot_name as string) || "Potts Recorder",
+                    botName: botDetails.bot_name || (data.extra?.bot_name as string) || "Notula Recorder",
                     meetingUrl: botDetails.meeting_url || (data.extra?.meeting_url as string) || "",
                     status: "completed",
                     processingStatus: "processing",
@@ -578,7 +578,7 @@ async function extractUserId(extra?: Record<string, unknown>): Promise<string | 
                 },
                 timestamp: Date.now(),
             }),
-        }).catch(() => {})
+        }).catch(() => { })
         // #endregion
         return extra.user_id
     }
@@ -609,7 +609,7 @@ async function extractUserId(extra?: Record<string, unknown>): Promise<string | 
                     },
                     timestamp: Date.now(),
                 }),
-            }).catch(() => {})
+            }).catch(() => { })
             // #endregion
 
             return calendarAccount.userId
@@ -639,7 +639,7 @@ async function extractUserId(extra?: Record<string, unknown>): Promise<string | 
             },
             timestamp: Date.now(),
         }),
-    }).catch(() => {})
+    }).catch(() => { })
     // #endregion
 
     return null
@@ -681,7 +681,7 @@ async function handleBotFailed(data: {
                     data: {
                         userId,
                         botId: bot_id,
-                        botName: (data.extra?.bot_name as string) || "Potts Recorder",
+                        botName: (data.extra?.bot_name as string) || "Notula Recorder",
                         meetingUrl: (data.extra?.meeting_url as string) || "",
                         status: "failed",
                         processingStatus: "failed",
@@ -882,7 +882,7 @@ async function handleCalendarEventCreated(data: {
 
         // Schedule the bot with user_id
         try {
-            const botName = `Potts - ${instance.title}`
+            const botName = `Notula - ${instance.title}`
             const result = await scheduleCalendarBot(data.calendar_id, instance.event_id, {
                 botName,
                 seriesId: data.series_id,
@@ -976,7 +976,7 @@ async function handleCalendarEventUpdated(data: {
             }
 
             try {
-                const botName = `Potts - ${instance.title}`
+                const botName = `Notula - ${instance.title}`
                 const result = await scheduleCalendarBot(data.calendar_id, instance.event_id, {
                     botName,
                     seriesId: data.series_id,
