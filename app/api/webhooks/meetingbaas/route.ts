@@ -351,7 +351,7 @@ async function handleBotCompleted(data: BotCompletedData) {
                 data: {
                     userId,
                     botId: bot_id,
-                    botName: botDetails.bot_name || (data.extra?.bot_name as string) || "Notula Recorder",
+                    botName: botDetails.bot_name || (data.extra?.bot_name as string) || "Notula - AI Notetaker",
                     meetingUrl: botDetails.meeting_url || (data.extra?.meeting_url as string) || "",
                     status: "completed",
                     processingStatus: "processing",
@@ -473,8 +473,15 @@ async function handleBotCompleted(data: BotCompletedData) {
         if (utterances.length > 0) {
             webhookLogger.info("Generating AI content", { bot_id, utterance_count: utterances.length })
             try {
+                // Fetch user's custom vocabulary for AI context
+                const userSettings = await prisma.userSettings.findUnique({
+                    where: { userId },
+                    select: { customVocabulary: true }
+                })
+                const vocabulary = userSettings?.customVocabulary ?? []
+
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                const { summary, actionItems } = await generateMeetingAIContent(utterances as any)
+                const { summary, actionItems, questions } = await generateMeetingAIContent(utterances as any, vocabulary)
 
                 // Store summary
                 await prisma.summary.upsert({
@@ -508,10 +515,25 @@ async function handleBotCompleted(data: BotCompletedData) {
                     })
                 }
 
+                // Store questions (Q&A)
+                await prisma.question.deleteMany({ where: { meetingId: meeting.id } })
+                if (questions.length > 0) {
+                    await prisma.question.createMany({
+                        data: questions.map(q => ({
+                            meetingId: meeting.id,
+                            question: q.question,
+                            answer: q.answer,
+                            askedBy: q.askedBy,
+                            answeredBy: q.answeredBy,
+                        }))
+                    })
+                }
+
                 webhookLogger.info("AI content saved", {
                     bot_id,
                     has_summary: !!summary.overview,
-                    action_items: actionItems.length
+                    action_items: actionItems.length,
+                    questions: questions.length,
                 })
             } catch (aiErr) {
                 webhookLogger.error("Failed to generate AI content", aiErr instanceof Error ? aiErr : undefined, {
@@ -681,7 +703,7 @@ async function handleBotFailed(data: {
                     data: {
                         userId,
                         botId: bot_id,
-                        botName: (data.extra?.bot_name as string) || "Notula Recorder",
+                        botName: (data.extra?.bot_name as string) || "Notula - AI Notetaker",
                         meetingUrl: (data.extra?.meeting_url as string) || "",
                         status: "failed",
                         processingStatus: "failed",
@@ -882,7 +904,7 @@ async function handleCalendarEventCreated(data: {
 
         // Schedule the bot with user_id
         try {
-            const botName = `Notula - ${instance.title}`
+            const botName = instance.title
             const result = await scheduleCalendarBot(data.calendar_id, instance.event_id, {
                 botName,
                 seriesId: data.series_id,
@@ -976,7 +998,7 @@ async function handleCalendarEventUpdated(data: {
             }
 
             try {
-                const botName = `Notula - ${instance.title}`
+                const botName = instance.title
                 const result = await scheduleCalendarBot(data.calendar_id, instance.event_id, {
                     botName,
                     seriesId: data.series_id,

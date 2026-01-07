@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import { AppLayout } from "@/components/app-layout"
 import { Button } from "@/components/ui/button"
-import { Calendar, Plus, Trash2, Loader2, Mail, CheckCircle, AlertCircle } from "lucide-react"
+import { Calendar, Plus, Trash2, Loader2, Mail, CheckCircle, AlertCircle, BookOpen, X } from "lucide-react"
 
 interface ConnectedCalendar {
     uuid: string
@@ -21,22 +21,34 @@ export default function SettingsPage() {
     const [error, setError] = useState<string | null>(null)
     const [success, setSuccess] = useState<string | null>(null)
 
-    const fetchCalendars = async () => {
-        try {
-            const response = await fetch("/api/calendar/events")
-            const data = await response.json()
-            if (data.calendars) {
-                setCalendars(data.calendars)
-            }
-        } catch {
-            setError("Failed to load calendars")
-        } finally {
-            setIsLoading(false)
+    // Custom Vocabulary state
+    const [vocabulary, setVocabulary] = useState<string[]>([])
+    const [newTerm, setNewTerm] = useState("")
+    const [vocabLoading, setVocabLoading] = useState(true)
+    const [vocabSaving, setVocabSaving] = useState(false)
+
+    // Combined fetch function for parallel loading
+    const fetchAllData = async () => {
+        const [calendarsResult, vocabResult] = await Promise.allSettled([
+            fetch("/api/calendar/events").then(r => r.json()),
+            fetch("/api/settings").then(r => r.json()),
+        ])
+
+        // Handle calendars
+        if (calendarsResult.status === "fulfilled" && calendarsResult.value.calendars) {
+            setCalendars(calendarsResult.value.calendars)
         }
+        setIsLoading(false)
+
+        // Handle vocabulary
+        if (vocabResult.status === "fulfilled" && vocabResult.value.customVocabulary) {
+            setVocabulary(vocabResult.value.customVocabulary)
+        }
+        setVocabLoading(false)
     }
 
     useEffect(() => {
-        fetchCalendars()
+        fetchAllData()
 
         // Check for success message from redirect
         const params = new URLSearchParams(window.location.search)
@@ -82,6 +94,47 @@ export default function SettingsPage() {
         }
     }
 
+    const handleAddTerm = async () => {
+        const term = newTerm.trim()
+        if (!term || vocabulary.includes(term)) {
+            setNewTerm("")
+            return
+        }
+
+        const updatedVocab = [...vocabulary, term]
+        setVocabulary(updatedVocab)
+        setNewTerm("")
+        await saveVocabulary(updatedVocab)
+    }
+
+    const handleRemoveTerm = async (term: string) => {
+        const updatedVocab = vocabulary.filter(t => t !== term)
+        setVocabulary(updatedVocab)
+        await saveVocabulary(updatedVocab)
+    }
+
+    const saveVocabulary = async (vocab: string[]) => {
+        setVocabSaving(true)
+        try {
+            await fetch("/api/settings", {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ customVocabulary: vocab })
+            })
+        } catch {
+            setError("Failed to save vocabulary")
+        } finally {
+            setVocabSaving(false)
+        }
+    }
+
+    const handleKeyDown = (e: React.KeyboardEvent) => {
+        if (e.key === "Enter") {
+            e.preventDefault()
+            handleAddTerm()
+        }
+    }
+
     return (
         <AppLayout>
             {/* Header */}
@@ -92,16 +145,16 @@ export default function SettingsPage() {
                 </div>
             </div>
 
-            <div className="p-8 max-w-3xl">
+            <div className="p-8 max-w-3xl space-y-8">
                 {/* Success/Error Messages */}
                 {success && (
-                    <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg flex items-center gap-3 text-green-800">
+                    <div className="p-4 bg-green-50 border border-green-200 rounded-lg flex items-center gap-3 text-green-800">
                         <CheckCircle className="w-5 h-5 flex-shrink-0" />
                         <span>{success}</span>
                     </div>
                 )}
                 {error && (
-                    <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center gap-3 text-red-800">
+                    <div className="p-4 bg-red-50 border border-red-200 rounded-lg flex items-center gap-3 text-red-800">
                         <AlertCircle className="w-5 h-5 flex-shrink-0" />
                         <span>{error}</span>
                     </div>
@@ -199,7 +252,76 @@ export default function SettingsPage() {
                         </div>
                     )}
                 </section>
+
+                {/* Custom Vocabulary Section */}
+                <section className="bg-card border border-border rounded-lg">
+                    <div className="px-6 py-4 border-b border-border">
+                        <div className="flex items-center gap-3">
+                            <BookOpen className="w-5 h-5 text-primary" />
+                            <div>
+                                <h2 className="text-lg font-semibold">Custom Vocabulary</h2>
+                                <p className="text-sm text-muted-foreground">
+                                    Add domain-specific terms to improve AI accuracy in summaries
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="p-6">
+                        {/* Add new term */}
+                        <div className="flex gap-2 mb-4">
+                            <input
+                                type="text"
+                                value={newTerm}
+                                onChange={(e) => setNewTerm(e.target.value)}
+                                onKeyDown={handleKeyDown}
+                                placeholder="Enter term (e.g., company name, acronym, product)"
+                                className="flex-1 px-3 py-2 border border-border rounded-md bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                            />
+                            <Button onClick={handleAddTerm} disabled={!newTerm.trim() || vocabSaving}>
+                                {vocabSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                                <span className="ml-2">Add</span>
+                            </Button>
+                        </div>
+
+                        {/* Vocabulary list */}
+                        {vocabLoading ? (
+                            <div className="text-center py-4">
+                                <Loader2 className="w-5 h-5 animate-spin mx-auto text-muted-foreground" />
+                            </div>
+                        ) : vocabulary.length === 0 ? (
+                            <p className="text-sm text-muted-foreground text-center py-4">
+                                No custom terms added yet. Terms help AI understand specialized vocabulary in your meetings.
+                            </p>
+                        ) : (
+                            <div className="flex flex-wrap gap-2">
+                                {vocabulary.map((term) => (
+                                    <span
+                                        key={term}
+                                        className="inline-flex items-center gap-1 px-3 py-1 bg-primary/10 text-primary rounded-full text-sm"
+                                    >
+                                        {term}
+                                        <button
+                                            onClick={() => handleRemoveTerm(term)}
+                                            className="hover:bg-primary/20 rounded-full p-0.5"
+                                        >
+                                            <X className="w-3 h-3" />
+                                        </button>
+                                    </span>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="px-6 py-3 bg-muted/30 border-t border-border">
+                        <p className="text-xs text-muted-foreground">
+                            {vocabulary.length} term{vocabulary.length !== 1 ? "s" : ""} added.
+                            These terms will be used to improve AI transcription and summarization.
+                        </p>
+                    </div>
+                </section>
             </div>
         </AppLayout>
     )
 }
+

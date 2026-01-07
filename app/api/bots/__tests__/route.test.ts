@@ -51,9 +51,9 @@ describe('POST /api/bots Request Validation', () => {
     describe('bot_name handling', () => {
         it('should use default bot name if not provided', () => {
             const body = { meeting_url: 'https://meet.google.com/abc-defg-hij' }
-            const botName = body.bot_name || 'Notula Recorder'
+            const botName = body.bot_name || 'Notula - AI Notetaker'
 
-            expect(botName).toBe('Notula Recorder')
+            expect(botName).toBe('Notula - AI Notetaker')
         })
 
         it('should use provided bot name', () => {
@@ -61,7 +61,7 @@ describe('POST /api/bots Request Validation', () => {
                 meeting_url: 'https://meet.google.com/abc-defg-hij',
                 bot_name: 'Custom Bot Name',
             }
-            const botName = body.bot_name || 'Notula Recorder'
+            const botName = body.bot_name || 'Notula - AI Notetaker'
 
             expect(botName).toBe('Custom Bot Name')
         })
@@ -132,7 +132,7 @@ describe('GET /api/bots Response Format', () => {
         it('should include required fields', () => {
             const bot = {
                 bot_id: 'bot-uuid',
-                bot_name: 'Notula Recorder',
+                bot_name: 'Notula - AI Notetaker',
                 meeting_url: 'https://meet.google.com/abc',
                 status: 'completed',
                 processing_status: 'completed',

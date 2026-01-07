@@ -15,7 +15,12 @@ interface MeetingsResponse {
 
 export function useMeetings(limit?: number) {
     const url = limit ? `/api/bots?limit=${limit}` : '/api/bots'
-    const { data, error, isLoading, mutate } = useSWR<MeetingsResponse>(url, fetcher)
+    const { data, error, isLoading, mutate } = useSWR<MeetingsResponse>(url, fetcher, {
+        dedupingInterval: 10000,        // Don't refetch within 10s of last fetch
+        focusThrottleInterval: 30000,   // Only refetch on focus every 30s
+        revalidateOnFocus: true,        // Keep auto-refresh on tab focus
+        keepPreviousData: true,         // Show old data while loading new
+    })
 
     return {
         meetings: data?.bots || [],

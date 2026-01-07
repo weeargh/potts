@@ -59,6 +59,14 @@ export interface ActionItem {
   completed: boolean
 }
 
+export interface QuestionAnswer {
+  question: string
+  answer: string
+  askedBy?: string | null
+  answeredBy?: string | null
+  timestamp?: string | null
+}
+
 export interface Meeting {
   bot_id: string
   bot_name: string

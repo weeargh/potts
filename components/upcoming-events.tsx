@@ -65,7 +65,7 @@ export function UpcomingEvents({ onRefresh }: UpcomingEventsProps) {
                     calendar_id: event.calendar_id,
                     event_id: event.event_id,
                     series_id: event.series_id,
-                    bot_name: `Notula - ${event.title}`,
+                    bot_name: event.title,
                 }),
             })
 

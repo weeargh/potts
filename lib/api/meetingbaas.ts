@@ -18,6 +18,7 @@ import type {
 } from "@/lib/data/types"
 import {
   MEETINGBAAS_CONFIG,
+  BOT_AVATAR_URL,
   apiGet,
   apiPost,
   apiDelete,
@@ -64,6 +65,7 @@ export async function createMeetingBot(
   // Build bot configuration
   const botConfig: Record<string, unknown> = {
     bot_name: config.bot_name.trim(),
+    bot_image: BOT_AVATAR_URL,
     meeting_url: config.meeting_url.trim(),
     recording_mode: config.recording_mode || "speaker_view",
     allow_multiple_bots: config.allow_multiple_bots ?? false, // Prevent duplicate bots
@@ -473,8 +475,8 @@ export async function scheduleCalendarBot(
     event_id: eventId,
     ...(botConfig?.seriesId && { series_id: botConfig.seriesId }),
     all_occurrences: botConfig?.allOccurrences || false,
-    bot_name: botConfig?.botName || "Notula Recorder",
-    ...(botConfig?.botImage && { bot_image: botConfig.botImage }),
+    bot_name: botConfig?.botName || "Notula - AI Notetaker",
+    bot_image: botConfig?.botImage || BOT_AVATAR_URL,
     recording_mode: botConfig?.recordingMode || "speaker_view",
     ...getTranscriptionConfig(),
   }
@@ -496,7 +498,7 @@ export async function scheduleCalendarBot(
   // Even if userId is not available, the webhook can look up via calendar_id
   body.extra = {
     ...(botConfig?.userId && { user_id: botConfig.userId }),
-    bot_name: botConfig?.botName || "Notula Recorder",
+    bot_name: botConfig?.botName || "Notula - AI Notetaker",
     calendar_id: calendarId,
     event_id: eventId,
   }

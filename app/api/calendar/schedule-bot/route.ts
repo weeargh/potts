@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
         }
 
         const result = await scheduleCalendarBot(calendar_id, event_id, {
-            botName: bot_name || "Notula Recorder",
+            botName: bot_name || "Notula - AI Notetaker",
             seriesId: series_id, // Pass series_id to fix MeetingBaas API validation
             userId: user.id,     // Pass user_id for webhook association
         })

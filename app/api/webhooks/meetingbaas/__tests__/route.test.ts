@@ -604,17 +604,16 @@ describe('Calendar Event Scheduling Rules', () => {
     })
 
     describe('Bot Name Generation', () => {
-        it('should prefix event title with "Notula - "', () => {
+        it('should use exact event title for meeting name', () => {
             const eventTitle = 'Weekly Standup'
-            const botName = `Notula - ${eventTitle}`
+            const meetingName = eventTitle
 
-            expect(botName).toBe('Notula - Weekly Standup')
-            expect(botName.startsWith('Notula - ')).toBe(true)
+            expect(meetingName).toBe('Weekly Standup')
         })
 
         it('should use default name for manual bots', () => {
-            const defaultName = 'Notula Recorder'
-            expect(defaultName).toBe('Notula Recorder')
+            const defaultName = 'Notula - AI Notetaker'
+            expect(defaultName).toBe('Notula - AI Notetaker')
         })
     })
 })

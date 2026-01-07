@@ -187,7 +187,8 @@ async function main() {
         try {
           console.log(`   🧠 Generating AI summary...`)
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const { summary, actionItems } = await generateMeetingAIContent(utterances as any)
+          const { summary, actionItems, questions } = await generateMeetingAIContent(utterances as any)
+          console.log(`    AI generated: ${summary.keyPoints.length} key points, ${actionItems.length} action items, ${questions.length} Q&A`)
 
           // Store summary
           await prisma.summary.upsert({

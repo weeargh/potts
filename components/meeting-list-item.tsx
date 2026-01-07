@@ -11,7 +11,7 @@ export interface MeetingListItemProps {
 
 export function MeetingListItem({ meeting, className }: MeetingListItemProps) {
   return (
-    <Link href={`/meetings/${meeting.bot_id}`}>
+    <Link href={`/meetings/${meeting.bot_id}`} prefetch={true}>
       <div
         className={cn(
           "flex items-center gap-3 md:gap-4 px-4 md:px-6 py-4 hover:bg-muted/30 transition-colors cursor-pointer group",

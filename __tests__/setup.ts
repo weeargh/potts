@@ -200,7 +200,7 @@ export function createTestMeeting(overrides = {}) {
         id: 'meeting-uuid-1234-5678-90abcdef1234',
         userId: mockSupabaseUser.id,
         botId: 'bot-uuid-1234-5678-90abcdef1234',
-        botName: 'Notula Recorder',
+        botName: 'Notula - AI Notetaker',
         meetingUrl: 'https://meet.google.com/abc-defg-hij',
         status: 'completed',
         processingStatus: 'completed',

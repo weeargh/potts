@@ -75,7 +75,7 @@ describe('GET /api/bots/:id Response Format', () => {
     it('should include meeting details', () => {
         const response = {
             bot_id: VALID_BOT_ID,
-            bot_name: 'Notula Recorder',
+            bot_name: 'Notula - AI Notetaker',
             meeting_url: 'https://meet.google.com/abc-defg-hij',
             status: 'completed',
             processing_status: 'completed',

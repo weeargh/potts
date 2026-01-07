@@ -17,6 +17,18 @@ export const MEETINGBAAS_CONFIG = {
     retryDelay: 1000, // 1 second base delay
 }
 
+/**
+ * Bot avatar URL - publicly accessible image for bot profile
+ * Uses VERCEL_URL in production, falls back to localhost for dev
+ */
+const getBaseUrl = () => {
+    if (process.env.NEXT_PUBLIC_BASE_URL) return process.env.NEXT_PUBLIC_BASE_URL
+    if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`
+    return 'http://localhost:3000'
+}
+
+export const BOT_AVATAR_URL = `${getBaseUrl()}/bot-avatar.png`
+
 // ============================================
 // Types
 // ============================================

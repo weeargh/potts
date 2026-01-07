@@ -17,8 +17,20 @@ model User {
   updatedAt        DateTime          @updatedAt @map("updated_at")
   calendarAccounts CalendarAccount[]
   meetings         Meeting[]
+  settings         UserSettings?
 
   @@map("users")
+}
+
+model UserSettings {
+  id               String   @id @default(uuid()) @db.Uuid
+  userId           String   @unique @map("user_id") @db.Uuid
+  customVocabulary String[] @default([]) @map("custom_vocabulary")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_settings")
 }
 
 model CalendarAccount {
@@ -73,6 +85,7 @@ model Meeting {
   completedAt      DateTime?     @map("completed_at")
   // Relations
   actionItems      ActionItem[]
+  questions        Question[]
   user             User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   participants     Participant[]
   summary          Summary?
@@ -149,6 +162,20 @@ model Participant {
 
   @@index([meetingId])
   @@map("participants")
+}
+
+model Question {
+  id         String   @id @default(uuid()) @db.Uuid
+  meetingId  String   @map("meeting_id") @db.Uuid
+  question   String
+  answer     String
+  askedBy    String?  @map("asked_by")
+  answeredBy String?  @map("answered_by")
+  createdAt  DateTime @default(now()) @map("created_at")
+  meeting    Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@index([meetingId])
+  @@map("questions")
 }
 
 model CalendarEvent {

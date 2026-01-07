@@ -158,7 +158,12 @@ export async function POST(
       try {
         apiLogger.info("Generating AI content", { bot_id: botId })
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const { summary, actionItems } = await generateMeetingAIContent(utterances as any)
+        const { summary, actionItems, questions } = await generateMeetingAIContent(utterances as any)
+
+        // Log Q&A for now (until DB table is added)
+        if (questions.length > 0) {
+          console.log(`[Recover] Q&A extracted: ${questions.length} questions`)
+        }
 
         await prisma.summary.upsert({
           where: { meetingId: meeting.id },
