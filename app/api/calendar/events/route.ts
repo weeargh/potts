@@ -179,45 +179,34 @@ async function getEventsWithCache(calendarId: string, forceRefresh: boolean, sta
         first_event: events.length > 0 ? { title: events[0]?.title, start: events[0]?.start_time } : null
     })
 
-    // 4. Save to DB (Upsert)
-    // We do this asynchronously to not block the UI response too much, 
-    // BUT since we want to return the fresh data, we await it or just return 'events' while saving in background.
-    // To be safe and consistent, we await the save.
+    // 4. Replace all cached events for this calendar (delete + insert)
+    // This ensures removed/cancelled events are also deleted from cache
+    // Using transaction for atomicity
+    await prisma.$transaction(async (tx) => {
+        // Delete ALL old events for this calendar (clean slate)
+        await tx.calendarEvent.deleteMany({
+            where: { calendarId: calendarId }
+        })
 
-    // Transactional upsert is safer
-    await prisma.$transaction(
-        events.map(event =>
-            prisma.calendarEvent.upsert({
-                where: { eventId: event.event_id },
-                update: {
-                    title: event.title,
-                    startTime: new Date(event.start_time),
-                    endTime: new Date(event.end_time),
-                    meetingUrl: event.meeting_url,
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    platform: event.meeting_platform,
-                    botScheduled: event.bot_scheduled || false,
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    rawData: event as any,
-                    lastFetchedAt: new Date()
-                },
-                create: {
+        // Insert fresh events
+        if (events.length > 0) {
+            await tx.calendarEvent.createMany({
+                data: events.map(event => ({
                     eventId: event.event_id,
                     calendarId: calendarId,
                     title: event.title,
                     startTime: new Date(event.start_time),
                     endTime: new Date(event.end_time),
                     meetingUrl: event.meeting_url,
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     platform: event.meeting_platform,
                     botScheduled: event.bot_scheduled || false,
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     rawData: event as any,
                     lastFetchedAt: new Date()
-                }
+                }))
             })
-        )
-    ).catch(err => log.error("Failed to cache calendar events", err instanceof Error ? err : undefined))
+        }
+    }).catch(err => log.error("Failed to cache calendar events", err instanceof Error ? err : undefined))
 
     return events
 }
