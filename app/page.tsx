@@ -15,7 +15,6 @@ import { useMeetings } from "@/lib/hooks/use-meetings"
 
 export default function Dashboard() {
   const [searchQuery, setSearchQuery] = useState("")
-  const [selectedFilter, setSelectedFilter] = useState("all")
 
   const { meetings, isLoading: loading, mutate: reloadMeetings } = useMeetings()
 
@@ -123,115 +122,98 @@ export default function Dashboard() {
             />
           </div>
 
-          <div className="flex flex-col sm:flex-row gap-4 w-full md:w-auto">
-            <div className="flex overflow-x-auto pb-2 md:pb-0 gap-2 no-scrollbar w-full md:w-auto mask-fade-right">
-              {["all", "recent", "shared", "archived"].map((filter) => (
-                <button
-                  key={filter}
-                  onClick={() => setSelectedFilter(filter)}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors flex-shrink-0 ${selectedFilter === filter
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted text-foreground hover:bg-border"
-                    }`}
-                >
-                  {filter.charAt(0).toUpperCase() + filter.slice(1)}
-                </button>
-              ))}
-            </div>
-
-            {/* Status Toggle and Show All */}
-            <div className="flex items-center gap-4 flex-shrink-0">
-              <label className="flex items-center gap-2 text-sm cursor-pointer whitespace-nowrap">
-                <input
-                  type="checkbox"
-                  checked={showOnlyCompleted}
-                  onChange={(e) => setShowOnlyCompleted(e.target.checked)}
-                  className="w-4 h-4 rounded border-border"
-                />
-                <span className="text-muted-foreground">Only Completed</span>
-              </label>
-              {!showAll && filteredMeetings.length > 5 && (
-                <button
-                  onClick={() => {
-                    setShowAll(true)
-                    setShowOnlyCompleted(false)
-                  }}
-                  className="text-sm text-primary hover:underline whitespace-nowrap"
-                >
-                  Show All ({filteredMeetings.length})
-                </button>
-              )}
-              {showAll && (
-                <button
-                  onClick={() => {
-                    setShowAll(false)
-                    setShowOnlyCompleted(true)
-                  }}
-                  className="text-sm text-muted-foreground hover:text-foreground whitespace-nowrap"
-                >
-                  Show Less
-                </button>
-              )}
-            </div>
+          <div className="flex items-center gap-4">
+            <label className="flex items-center gap-2 text-sm cursor-pointer whitespace-nowrap">
+              <input
+                type="checkbox"
+                checked={showOnlyCompleted}
+                onChange={(e) => setShowOnlyCompleted(e.target.checked)}
+                className="w-4 h-4 rounded border-border"
+              />
+              <span className="text-muted-foreground">Only Completed</span>
+            </label>
+            {!showAll && filteredMeetings.length > 5 && (
+              <button
+                onClick={() => {
+                  setShowAll(true)
+                  setShowOnlyCompleted(false)
+                }}
+                className="text-sm text-primary hover:underline whitespace-nowrap"
+              >
+                Show All ({filteredMeetings.length})
+              </button>
+            )}
+            {showAll && (
+              <button
+                onClick={() => {
+                  setShowAll(false)
+                  setShowOnlyCompleted(true)
+                }}
+                className="text-sm text-muted-foreground hover:text-foreground whitespace-nowrap"
+              >
+                Show Less
+              </button>
+            )}
           </div>
         </div>
       </div>
+    </div>
 
-      {/* Meetings List */}
-      <div className="overflow-auto flex-1">
-        {loading ? (
-          <div className="flex flex-col px-8 py-4 space-y-4">
-            {/* Skeleton Group Header */}
-            <div className="w-24 h-5 bg-muted rounded animate-pulse mb-2"></div>
-            {/* Skeleton Rows */}
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="flex items-center gap-4 px-6 py-4 border rounded-lg bg-card/50">
-                <div className="w-20 h-4 bg-muted rounded animate-pulse"></div>
-                <div className="flex-1 space-y-2">
-                  <div className="w-48 h-5 bg-muted rounded animate-pulse"></div>
-                  <div className="w-32 h-4 bg-muted rounded animate-pulse"></div>
-                </div>
-                <div className="w-8 h-8 rounded-full bg-muted animate-pulse"></div>
-              </div>
-            ))}
+      {/* Meetings List */ }
+  <div className="overflow-auto flex-1">
+    {loading ? (
+      <div className="flex flex-col px-8 py-4 space-y-4">
+        {/* Skeleton Group Header */}
+        <div className="w-24 h-5 bg-muted rounded animate-pulse mb-2"></div>
+        {/* Skeleton Rows */}
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="flex items-center gap-4 px-6 py-4 border rounded-lg bg-card/50">
+            <div className="w-20 h-4 bg-muted rounded animate-pulse"></div>
+            <div className="flex-1 space-y-2">
+              <div className="w-48 h-5 bg-muted rounded animate-pulse"></div>
+              <div className="w-32 h-4 bg-muted rounded animate-pulse"></div>
+            </div>
+            <div className="w-8 h-8 rounded-full bg-muted animate-pulse"></div>
           </div>
-        ) : filteredMeetings.length > 0 ? (
-          <div className="flex flex-col">
-            {orderedGroups.map((group) => (
-              <div key={group}>
-                {/* Date Group Header */}
-                <div className="sticky top-0 z-10 bg-background border-b border-border px-8 py-3">
-                  <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-                    {group}
-                  </h2>
-                </div>
+        ))}
+      </div>
+    ) : filteredMeetings.length > 0 ? (
+      <div className="flex flex-col">
+        {orderedGroups.map((group) => (
+          <div key={group}>
+            {/* Date Group Header */}
+            <div className="sticky top-0 z-10 bg-background border-b border-border px-8 py-3">
+              <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+                {group}
+              </h2>
+            </div>
 
-                {/* Meetings in this group */}
-                <div className="divide-y divide-border">
-                  {groupedMeetings[group]?.map((meeting) => (
-                    <MeetingListItem key={meeting.bot_id} meeting={meeting} />
-                  ))}
-                </div>
-              </div>
-            ))}
+            {/* Meetings in this group */}
+            <div className="divide-y divide-border">
+              {groupedMeetings[group]?.map((meeting) => (
+                <MeetingListItem key={meeting.bot_id} meeting={meeting} />
+              ))}
+            </div>
           </div>
-        ) : (
-          <div className="flex flex-col items-center justify-center py-12">
-            <Volume2 className="w-12 h-12 text-muted-foreground mb-4" />
-            <p className="text-muted-foreground text-center">
-              {searchQuery ? "No meetings found. Try adjusting your search." : "No meetings yet. Create your first recording."}
-            </p>
-            {!searchQuery && (
-              <Link href="/meetings/new">
-                <Button className="mt-4">
-                  <Plus className="w-4 h-4 mr-2" />
-                  Create Recording
-                </Button>
-              </Link>
-            )}
-          </div>
+        ))}
+      </div>
+    ) : (
+      <div className="flex flex-col items-center justify-center py-12">
+        <Volume2 className="w-12 h-12 text-muted-foreground mb-4" />
+        <p className="text-muted-foreground text-center">
+          {searchQuery ? "No meetings found. Try adjusting your search." : "No meetings yet. Create your first recording."}
+        </p>
+        {!searchQuery && (
+          <Link href="/meetings/new">
+            <Button className="mt-4">
+              <Plus className="w-4 h-4 mr-2" />
+              Create Recording
+            </Button>
+          </Link>
         )}
       </div>
-    </AppLayout>
+    )}
+  </div>
+    </AppLayout >
   )
 }
