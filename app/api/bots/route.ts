@@ -99,9 +99,21 @@ export async function GET(request: NextRequest) {
     const limitParam = url.searchParams.get("limit")
     const limit = limitParam ? Math.min(parseInt(limitParam, 10), 100) : 20
 
+    // Status filter - by default exclude queued/scheduled meetings (future meetings)
+    const statusFilter = url.searchParams.get("status")
+    const excludeQueued = url.searchParams.get("exclude_queued") !== "false"
+
     // Fetch meetings from database
     const meetings = await prisma.meeting.findMany({
-      where: { userId: user.id },
+      where: {
+        userId: user.id,
+        // Exclude queued/joining meetings by default (these are scheduled future meetings)
+        ...(excludeQueued && !statusFilter && {
+          status: { notIn: ["queued", "joining_call", "in_waiting_room"] }
+        }),
+        // If specific status requested, filter by that
+        ...(statusFilter && { status: statusFilter }),
+      },
       take: limit + 1,  // Fetch one extra for pagination
       ...(cursor && {
         skip: 1,
