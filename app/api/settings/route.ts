@@ -61,11 +61,10 @@ export async function PATCH(request: Request) {
                 )
             }
             // Ensure all items are strings and remove duplicates
-            const vocabulary: string[] = [...new Set(
-                body.customVocabulary
-                    .filter((item: unknown) => typeof item === "string" && item.trim())
-                    .map((item: string) => item.trim())
-            )]
+            const filtered = body.customVocabulary
+                .filter((item: unknown): item is string => typeof item === "string" && item.trim() !== "")
+                .map((item: string) => item.trim())
+            const vocabulary: string[] = Array.from(new Set(filtered))
 
             const settings = await prisma.userSettings.upsert({
                 where: { userId: user.id },
