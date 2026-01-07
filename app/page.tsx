@@ -157,63 +157,62 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
-    </div>
 
-      {/* Meetings List */ }
-  <div className="overflow-auto flex-1">
-    {loading ? (
-      <div className="flex flex-col px-8 py-4 space-y-4">
-        {/* Skeleton Group Header */}
-        <div className="w-24 h-5 bg-muted rounded animate-pulse mb-2"></div>
-        {/* Skeleton Rows */}
-        {[1, 2, 3].map((i) => (
-          <div key={i} className="flex items-center gap-4 px-6 py-4 border rounded-lg bg-card/50">
-            <div className="w-20 h-4 bg-muted rounded animate-pulse"></div>
-            <div className="flex-1 space-y-2">
-              <div className="w-48 h-5 bg-muted rounded animate-pulse"></div>
-              <div className="w-32 h-4 bg-muted rounded animate-pulse"></div>
-            </div>
-            <div className="w-8 h-8 rounded-full bg-muted animate-pulse"></div>
+      {/* Meetings List */}
+      <div className="overflow-auto flex-1">
+        {loading ? (
+          <div className="flex flex-col px-8 py-4 space-y-4">
+            {/* Skeleton Group Header */}
+            <div className="w-24 h-5 bg-muted rounded animate-pulse mb-2"></div>
+            {/* Skeleton Rows */}
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="flex items-center gap-4 px-6 py-4 border rounded-lg bg-card/50">
+                <div className="w-20 h-4 bg-muted rounded animate-pulse"></div>
+                <div className="flex-1 space-y-2">
+                  <div className="w-48 h-5 bg-muted rounded animate-pulse"></div>
+                  <div className="w-32 h-4 bg-muted rounded animate-pulse"></div>
+                </div>
+                <div className="w-8 h-8 rounded-full bg-muted animate-pulse"></div>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
-    ) : filteredMeetings.length > 0 ? (
-      <div className="flex flex-col">
-        {orderedGroups.map((group) => (
-          <div key={group}>
-            {/* Date Group Header */}
-            <div className="sticky top-0 z-10 bg-background border-b border-border px-8 py-3">
-              <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-                {group}
-              </h2>
-            </div>
+        ) : filteredMeetings.length > 0 ? (
+          <div className="flex flex-col">
+            {orderedGroups.map((group) => (
+              <div key={group}>
+                {/* Date Group Header */}
+                <div className="sticky top-0 z-10 bg-background border-b border-border px-8 py-3">
+                  <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+                    {group}
+                  </h2>
+                </div>
 
-            {/* Meetings in this group */}
-            <div className="divide-y divide-border">
-              {groupedMeetings[group]?.map((meeting) => (
-                <MeetingListItem key={meeting.bot_id} meeting={meeting} />
-              ))}
-            </div>
+                {/* Meetings in this group */}
+                <div className="divide-y divide-border">
+                  {groupedMeetings[group]?.map((meeting) => (
+                    <MeetingListItem key={meeting.bot_id} meeting={meeting} />
+                  ))}
+                </div>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
-    ) : (
-      <div className="flex flex-col items-center justify-center py-12">
-        <Volume2 className="w-12 h-12 text-muted-foreground mb-4" />
-        <p className="text-muted-foreground text-center">
-          {searchQuery ? "No meetings found. Try adjusting your search." : "No meetings yet. Create your first recording."}
-        </p>
-        {!searchQuery && (
-          <Link href="/meetings/new">
-            <Button className="mt-4">
-              <Plus className="w-4 h-4 mr-2" />
-              Create Recording
-            </Button>
-          </Link>
+        ) : (
+          <div className="flex flex-col items-center justify-center py-12">
+            <Volume2 className="w-12 h-12 text-muted-foreground mb-4" />
+            <p className="text-muted-foreground text-center">
+              {searchQuery ? "No meetings found. Try adjusting your search." : "No meetings yet. Create your first recording."}
+            </p>
+            {!searchQuery && (
+              <Link href="/meetings/new">
+                <Button className="mt-4">
+                  <Plus className="w-4 h-4 mr-2" />
+                  Create Recording
+                </Button>
+              </Link>
+            )}
+          </div>
         )}
       </div>
-    )}
-  </div>
     </AppLayout >
   )
 }
