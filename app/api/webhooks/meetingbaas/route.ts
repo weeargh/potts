@@ -909,6 +909,7 @@ async function handleCalendarEventCreated(data: {
                 botName,
                 seriesId: data.series_id,
                 userId,  // Pass userId for webhook association
+                allOccurrences: data.event_type === "recurring",  // Schedule ALL instances for recurring
             })
 
             // Create Meeting record in Supabase immediately
