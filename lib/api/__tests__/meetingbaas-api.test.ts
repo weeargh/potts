@@ -19,7 +19,7 @@ vi.mock('@meeting-baas/sdk', () => ({
     createBaasClient: () => ({
         createBot: vi.fn().mockResolvedValue({
             success: true,
-            data: { bot_id: 'test-bot-id-1234-5678-90ab-cdef12345678' }
+            data: { bot_id: '12345678-1234-5678-90ab-cdef12345678' }
         })
     })
 }))
@@ -385,5 +385,235 @@ describe('Type Safety', () => {
         expect(result[0].event_id).toBe('event-1')
         expect(result[0].event_type).toBe('one_off')
         expect(result[0].title).toBe('Test Meeting')
+    })
+})
+
+// ============================================
+// getTranscript Tests
+// ============================================
+
+import { getTranscript, createMeetingBot, listRawCalendars, createCalendarConnection, scheduleCalendarBot } from '../meetingbaas'
+
+describe('getTranscript', () => {
+    beforeEach(() => {
+        mockFetch.mockReset()
+    })
+
+    it('should extract utterances from nested result structure', async () => {
+        const mockUtterances = [
+            { speaker: 0, text: 'Hello', start: 0, end: 1 },
+            { speaker: 1, text: 'Hi there', start: 1, end: 2 },
+        ]
+        mockFetch.mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({ result: { utterances: mockUtterances } }),
+        })
+
+        const result = await getTranscript('https://example.com/transcript.json')
+        expect(result).toEqual(mockUtterances)
+    })
+
+    it('should handle direct array response', async () => {
+        const mockUtterances = [
+            { speaker: 0, text: 'Test', start: 0, end: 1 },
+        ]
+        mockFetch.mockResolvedValueOnce({
+            ok: true,
+            json: async () => mockUtterances,
+        })
+
+        const result = await getTranscript('https://example.com/transcript.json')
+        expect(result).toEqual(mockUtterances)
+    })
+
+    it('should handle utterances property at top level', async () => {
+        const mockUtterances = [
+            { speaker: 0, text: 'Test', start: 0, end: 1 },
+        ]
+        mockFetch.mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({ utterances: mockUtterances }),
+        })
+
+        const result = await getTranscript('https://example.com/transcript.json')
+        expect(result).toEqual(mockUtterances)
+    })
+
+    it('should return empty array for unknown format', async () => {
+        mockFetch.mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({ unknown: 'format' }),
+        })
+
+        const result = await getTranscript('https://example.com/transcript.json')
+        expect(result).toEqual([])
+    })
+
+    it('should throw on failed fetch', async () => {
+        mockFetch.mockResolvedValueOnce({
+            ok: false,
+            statusText: 'Not Found',
+        })
+
+        await expect(getTranscript('https://example.com/transcript.json'))
+            .rejects
+            .toThrow('Failed to fetch transcript')
+    })
+})
+
+// ============================================
+// createMeetingBot Tests
+// ============================================
+
+describe('createMeetingBot', () => {
+    beforeEach(() => {
+        mockFetch.mockReset()
+    })
+
+    it('should throw for invalid meeting URL', async () => {
+        await expect(createMeetingBot({
+            meeting_url: 'invalid-url',
+            bot_name: 'Test Bot',
+        })).rejects.toThrow(MeetingBaasError)
+    })
+
+    it('should throw for empty bot name', async () => {
+        await expect(createMeetingBot({
+            meeting_url: 'https://meet.google.com/abc-defg-hij',
+            bot_name: '',
+        })).rejects.toThrow(MeetingBaasError)
+    })
+
+    it('should throw for whitespace-only bot name', async () => {
+        await expect(createMeetingBot({
+            meeting_url: 'https://meet.google.com/abc-defg-hij',
+            bot_name: '   ',
+        })).rejects.toThrow('Bot name is required')
+    })
+
+    it('should create bot with valid parameters', async () => {
+        // Mock getBotStatus response
+        mockSuccessResponse({
+            bot_id: '12345678-1234-5678-90ab-cdef12345678',
+            status: 'queued',
+            created_at: '2025-01-20T10:00:00Z',
+            bot_name: 'Test Bot',
+            participants: [],
+            speakers: [],
+        })
+
+        const result = await createMeetingBot({
+            meeting_url: 'https://meet.google.com/abc-defg-hij',
+            bot_name: 'Test Bot',
+            user_id: 'user-123',
+        })
+
+        expect(result.bot_id).toBe('12345678-1234-5678-90ab-cdef12345678')
+        expect(result.status).toBeDefined()
+    })
+})
+
+// ============================================
+// Calendar API Tests
+// ============================================
+
+describe('listRawCalendars', () => {
+    beforeEach(() => {
+        mockFetch.mockReset()
+    })
+
+    it('should return array from calendars property', async () => {
+        const mockCalendars = [
+            { id: 'cal-1', name: 'Primary', email: 'user@gmail.com' },
+            { id: 'cal-2', name: 'Work', email: 'user@work.com' },
+        ]
+        mockFetch.mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({ data: { calendars: mockCalendars } }),
+        })
+
+        const result = await listRawCalendars({
+            oauthClientId: 'client-id',
+            oauthClientSecret: 'client-secret',
+            oauthRefreshToken: 'refresh-token',
+            platform: 'google',
+        })
+
+        expect(result).toEqual(mockCalendars)
+    })
+
+    it('should return array when response is direct array', async () => {
+        const mockCalendars = [
+            { id: 'cal-1', name: 'Primary', email: 'user@gmail.com' },
+        ]
+        mockFetch.mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({ data: mockCalendars }),
+        })
+
+        const result = await listRawCalendars({
+            oauthClientId: 'client-id',
+            oauthClientSecret: 'client-secret',
+            oauthRefreshToken: 'refresh-token',
+            platform: 'google',
+        })
+
+        expect(result).toEqual(mockCalendars)
+    })
+})
+
+describe('scheduleCalendarBot', () => {
+    beforeEach(() => {
+        mockFetch.mockReset()
+    })
+
+    it('should throw for invalid calendar ID', async () => {
+        await expect(scheduleCalendarBot('invalid-id', 'event-123'))
+            .rejects
+            .toThrow(MeetingBaasError)
+    })
+
+    it('should schedule bot with valid parameters', async () => {
+        const calendarId = '123e4567-e89b-12d3-a456-426614174000'
+        mockFetch.mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({ data: { event_id: 'event-123', scheduled: true } }),
+        })
+
+        const result = await scheduleCalendarBot(calendarId, 'event-123', {
+            userId: 'user-456',
+            allOccurrences: true,
+        })
+
+        expect(result.event_id).toBe('event-123')
+    })
+
+    it('should extract bot_id from response if present', async () => {
+        const calendarId = '123e4567-e89b-12d3-a456-426614174000'
+        mockFetch.mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({ data: { bot_id: 'bot-789', event_id: 'event-123' } }),
+        })
+
+        const result = await scheduleCalendarBot(calendarId, 'event-123')
+
+        expect(result.bot_id).toBe('bot-789')
+    })
+
+    it('should extract bot_id from scheduled_recording.id', async () => {
+        const calendarId = '123e4567-e89b-12d3-a456-426614174000'
+        mockFetch.mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({
+                data: {
+                    event_id: 'event-123',
+                    scheduled_recording: { id: 'scheduled-bot-id' }
+                }
+            }),
+        })
+
+        const result = await scheduleCalendarBot(calendarId, 'event-123')
+
+        expect(result.bot_id).toBe('scheduled-bot-id')
     })
 })

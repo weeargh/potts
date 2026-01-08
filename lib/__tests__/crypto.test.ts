@@ -180,3 +180,113 @@ describe('Security Properties', () => {
         }
     })
 })
+
+// ============================================
+// hash() Tests
+// ============================================
+
+import { hash, generateToken, safeCompare } from '../crypto'
+
+describe('hash', () => {
+    it('should hash a string deterministically', () => {
+        const input = 'test-value'
+        const hash1 = hash(input)
+        const hash2 = hash(input)
+
+        expect(hash1).toBe(hash2)
+    })
+
+    it('should produce 64-character hex output (SHA-256)', () => {
+        const result = hash('any-input')
+
+        expect(result).toMatch(/^[a-f0-9]{64}$/)
+    })
+
+    it('should produce different hashes for different inputs', () => {
+        const hash1 = hash('input1')
+        const hash2 = hash('input2')
+
+        expect(hash1).not.toBe(hash2)
+    })
+
+    it('should handle empty string', () => {
+        const result = hash('')
+
+        // SHA-256 of empty string is known value
+        expect(result).toBe('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855')
+    })
+
+    it('should handle unicode', () => {
+        const result = hash('日本語 🎉')
+
+        expect(result).toMatch(/^[a-f0-9]{64}$/)
+    })
+})
+
+// ============================================
+// generateToken() Tests
+// ============================================
+
+describe('generateToken', () => {
+    it('should generate random tokens', () => {
+        const token1 = generateToken()
+        const token2 = generateToken()
+
+        expect(token1).not.toBe(token2)
+    })
+
+    it('should generate 64-character hex by default (32 bytes)', () => {
+        const token = generateToken()
+
+        expect(token).toMatch(/^[a-f0-9]{64}$/)
+    })
+
+    it('should respect custom length parameter', () => {
+        const token16 = generateToken(16)  // 16 bytes = 32 hex chars
+        const token8 = generateToken(8)    // 8 bytes = 16 hex chars
+
+        expect(token16).toMatch(/^[a-f0-9]{32}$/)
+        expect(token8).toMatch(/^[a-f0-9]{16}$/)
+    })
+
+    it('should generate hex-only characters', () => {
+        // Generate multiple tokens and check all are valid hex
+        for (let i = 0; i < 10; i++) {
+            const token = generateToken()
+            expect(token).toMatch(/^[a-f0-9]+$/)
+        }
+    })
+})
+
+// ============================================
+// safeCompare() Tests
+// ============================================
+
+describe('safeCompare', () => {
+    it('should return true for identical strings', () => {
+        expect(safeCompare('secret', 'secret')).toBe(true)
+        expect(safeCompare('', '')).toBe(true)
+        expect(safeCompare('longer-string-here', 'longer-string-here')).toBe(true)
+    })
+
+    it('should return false for different strings', () => {
+        expect(safeCompare('secret', 'Secret')).toBe(false)
+        expect(safeCompare('abc', 'abd')).toBe(false)
+        expect(safeCompare('abc', 'abcd')).toBe(false)
+    })
+
+    it('should return false for different length strings', () => {
+        expect(safeCompare('short', 'longer')).toBe(false)
+        expect(safeCompare('abc', 'ab')).toBe(false)
+    })
+
+    it('should handle unicode strings', () => {
+        expect(safeCompare('日本語', '日本語')).toBe(true)
+        expect(safeCompare('日本語', '日本人')).toBe(false)
+    })
+
+    it('should handle empty vs non-empty', () => {
+        expect(safeCompare('', 'a')).toBe(false)
+        expect(safeCompare('a', '')).toBe(false)
+    })
+})
