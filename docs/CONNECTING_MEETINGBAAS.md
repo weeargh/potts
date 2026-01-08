@@ -112,6 +112,19 @@ Content-Type: application/json
 }
 ```
 
+### Bot Name & Avatar Configuration
+
+The bot name and avatar shown in meetings is configured when creating the bot:
+
+```json
+{
+  "bot_name": "Notula - AI Notetaker",  // Shown in meeting participant list
+  "bot_image": "https://your-domain.com/bot-avatar.png"  // Bot's profile picture
+}
+```
+
+**Important:** For calendar-scheduled bots, do NOT pass `bot_name` as a config option - let it use the default so all bots appear consistently as "Notula - AI Notetaker". Store the meeting title separately in your database for display purposes.
+
 #### Get Bot Status
 ```http
 GET /bots/{bot_id}

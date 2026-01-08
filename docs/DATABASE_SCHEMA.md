@@ -1,6 +1,6 @@
 # Database Schema Documentation
 
-> **Last Updated:** 2026-01-07  
+> **Last Updated:** 2026-01-08  
 > **Database:** PostgreSQL (Supabase)  
 > **ORM:** Prisma
 
@@ -10,12 +10,14 @@
 
 ```mermaid
 erDiagram
+    users ||--o| user_settings : "has"
     users ||--o{ calendar_accounts : "has"
     users ||--o{ meetings : "creates"
     meetings ||--o| transcripts : "has"
     meetings ||--o| diarizations : "has"
     meetings ||--o| summaries : "has"
     meetings ||--o{ action_items : "contains"
+    meetings ||--o{ questions : "contains"
     meetings ||--o{ participants : "includes"
     calendar_events }o--|| calendar_accounts : "belongs to"
 ```
@@ -27,12 +29,14 @@ erDiagram
 | Table | Purpose | Key Integrations |
 |-------|---------|------------------|
 | `users` | User profiles (synced from auth) | Supabase Auth |
+| `user_settings` | User preferences (custom vocabulary) | Claude AI |
 | `calendar_accounts` | OAuth tokens for Google Calendar | Google Calendar, MeetingBaas |
 | `meetings` | Bot recordings and metadata | MeetingBaas API |
 | `transcripts` | Full transcripts with utterances | Gladia (via MeetingBaas) |
 | `diarizations` | Speaker identification data | Gladia (via MeetingBaas) |
 | `summaries` | AI-generated summaries | Claude AI |
 | `action_items` | Extracted tasks | Claude AI |
+| `questions` | Extracted Q&A from meetings | Claude AI |
 | `participants` | Meeting attendees | MeetingBaas API |
 | `calendar_events` | Cached calendar events | Google Calendar (via MeetingBaas) |
 
@@ -52,6 +56,22 @@ Stores user profile data synced from **Supabase Auth**.
 | `updated_at` | TIMESTAMPTZ | Last update (auto-trigger) |
 
 **User Sync:** Users are synced via `ensureUserExists()` called in all authenticated API routes.
+
+---
+
+## Table: `user_settings`
+
+Stores user preferences like **custom vocabulary** for transcription.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | UUID | Primary key |
+| `user_id` | UUID | FK → `users.id` (unique) |
+| `custom_vocabulary` | TEXT[] | Array of custom terms for transcription |
+| `created_at` | TIMESTAMPTZ | Record creation |
+| `updated_at` | TIMESTAMPTZ | Last update |
+
+**Usage:** Custom vocabulary is passed to Gladia during transcription to improve accuracy of domain-specific terms.
 
 ---
 
@@ -109,6 +129,8 @@ Stores **MeetingBaas bot** recordings and metadata. This is the **local cache** 
 | `end_reason` | TEXT | `end_reason` | Why recording ended (nullable) |
 | `processing_status` | TEXT | - | `pending`, `processing`, `completed`, `failed` |
 | `extra` | JSON | `extra` | Extra webhook data (includes `user_id` for owner identification) |
+| `scheduled_start` | TIMESTAMPTZ | - | Scheduled meeting start time (for filtering past vs future) |
+| `scheduled_end` | TIMESTAMPTZ | - | Scheduled meeting end time (for filtering past vs future) |
 | `created_at` | TIMESTAMPTZ | `created_at` | Bot creation time |
 | `updated_at` | TIMESTAMPTZ | - | Last update |
 | `completed_at` | TIMESTAMPTZ | - | When recording finished (nullable) |
@@ -242,6 +264,24 @@ Extracted tasks from meetings via **Claude AI**. Many-to-one with `meetings`.
 | `completed` | BOOLEAN | Completion status (default: false) |
 | `created_at` | TIMESTAMPTZ | When extracted |
 | `updated_at` | TIMESTAMPTZ | Last update |
+
+**Index:** `meeting_id`
+
+---
+
+## Table: `questions`
+
+Extracted Q&A pairs from meetings via **Claude AI**. Many-to-one with `meetings`.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | UUID | Primary key |
+| `meeting_id` | UUID | FK → `meetings.id` |
+| `question` | TEXT | The question asked |
+| `answer` | TEXT | The answer given |
+| `asked_by` | TEXT | Who asked (nullable) |
+| `answered_by` | TEXT | Who answered (nullable) |
+| `created_at` | TIMESTAMPTZ | When extracted |
 
 **Index:** `meeting_id`
 
