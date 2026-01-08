@@ -353,6 +353,7 @@ async function handleBotCompleted(data: BotCompletedData) {
                     botId: bot_id,
                     botName: botDetails.bot_name || (data.extra?.bot_name as string) || "Notula - AI Notetaker",
                     meetingUrl: botDetails.meeting_url || (data.extra?.meeting_url as string) || "",
+                    calendarEventId: data.event_id || null,  // Link to calendar event if available
                     status: "completed",
                     processingStatus: "processing",
                     durationSeconds: data.duration_seconds,
@@ -895,34 +896,60 @@ async function handleCalendarEventCreated(data: {
         // Skip events without meeting URLs
         if (!instance.meeting_url) continue
 
-        // Skip already scheduled events
-        if (instance.bot_scheduled) continue
-
         // Skip past events
         const eventStart = new Date(instance.start_time)
         if (eventStart <= new Date()) continue
 
-        // Schedule the bot with user_id
-        // Note: Don't pass botName - let it use default "Notula - AI Notetaker"
-        // The meeting title is stored separately in the Meeting record
-        try {
-            const result = await scheduleCalendarBot(data.calendar_id, instance.event_id, {
-                seriesId: data.series_id,
-                userId,  // Pass userId for webhook association
-                allOccurrences: data.event_type === "recurring",  // Schedule ALL instances for recurring
+        // Check if meeting record already exists
+        const existingMeeting = await prisma.meeting.findFirst({
+            where: { calendarEventId: instance.event_id }
+        })
+
+        if (existingMeeting) {
+            webhookLogger.info("Meeting record already exists, skipping", {
+                event_id: instance.event_id,
+                meeting_id: existingMeeting.id,
             })
+            continue
+        }
 
-            // Create Meeting record in Supabase immediately
-            // NOTE: For calendar bots, bot_id is NOT available until the bot joins!
-            // We use a placeholder bot_id and store the event_id for lookup
-            // The real bot_id will be updated when bot.completed webhook arrives
-            const placeholderBotId = result.bot_id || `pending-${instance.event_id}`
+        let placeholderBotId = `pending-${instance.event_id}`
 
+        // Only call scheduleCalendarBot if not already scheduled
+        if (!instance.bot_scheduled) {
+            try {
+                const result = await scheduleCalendarBot(data.calendar_id, instance.event_id, {
+                    seriesId: data.series_id,
+                    userId,  // Pass userId for webhook association
+                    allOccurrences: data.event_type === "recurring",
+                })
+                placeholderBotId = result.bot_id || placeholderBotId
+
+                webhookLogger.info("Bot scheduled via API", {
+                    event_id: instance.event_id,
+                    bot_id: placeholderBotId,
+                })
+            } catch (error) {
+                webhookLogger.error("Failed to schedule bot via API", error instanceof Error ? error : undefined, {
+                    event_id: instance.event_id,
+                    title: instance.title
+                })
+                // Continue to create meeting record anyway
+            }
+        } else {
+            webhookLogger.info("Bot already scheduled by MeetingBaas, creating meeting record only", {
+                event_id: instance.event_id,
+            })
+        }
+
+        // ALWAYS create Meeting record in Supabase
+        // This ensures bot.completed webhook can find it
+        try {
             await prisma.meeting.create({
                 data: {
                     botId: placeholderBotId,
                     userId,
-                    botName: instance.title,  // Store meeting title for display, bot uses "Notula" in call
+                    botName: instance.title,  // Store meeting title for display
                     meetingUrl: instance.meeting_url,
                     calendarEventId: instance.event_id,  // Store event_id for lookup
                     status: "scheduled",
@@ -937,18 +964,26 @@ async function handleCalendarEventCreated(data: {
                 }
             })
 
-            webhookLogger.info("Auto-scheduled bot for event and created meeting record", {
+            webhookLogger.info("Created meeting record for calendar event", {
                 bot_id: placeholderBotId,
                 event_id: instance.event_id,
                 title: instance.title,
                 start_time: instance.start_time,
                 user_id: userId,
+                bot_already_scheduled: instance.bot_scheduled,
             })
-        } catch (error) {
-            webhookLogger.error("Failed to auto-schedule bot", error instanceof Error ? error : undefined, {
-                event_id: instance.event_id,
-                title: instance.title
-            })
+        } catch (createError) {
+            // Handle unique constraint violation (meeting already exists)
+            if (createError instanceof Error && createError.message.includes('Unique constraint')) {
+                webhookLogger.info("Meeting record already exists (race condition)", {
+                    event_id: instance.event_id,
+                })
+            } else {
+                webhookLogger.error("Failed to create meeting record", createError instanceof Error ? createError : undefined, {
+                    event_id: instance.event_id,
+                    title: instance.title
+                })
+            }
         }
 
         // Rate limiting
