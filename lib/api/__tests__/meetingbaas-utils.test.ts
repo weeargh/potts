@@ -17,6 +17,7 @@ import {
     validateCalendarId,
     validateTimestamp,
     getRetryDelay,
+    getTranscriptionConfig,
     MeetingBaasError,
     MEETINGBAAS_CONFIG,
 } from '../meetingbaas-utils'
@@ -356,5 +357,47 @@ describe('MEETINGBAAS_CONFIG', () => {
     it('should have callback properties', () => {
         expect(typeof MEETINGBAAS_CONFIG.callbackUrl).toBe('string')
         expect(typeof MEETINGBAAS_CONFIG.callbackSecret).toBe('string')
+    })
+})
+
+describe('getTranscriptionConfig', () => {
+    it('should return default config with bullet_points summarization', () => {
+        const config = getTranscriptionConfig()
+
+        expect(config.transcription_enabled).toBe(true)
+        expect(config.transcription_config.provider).toBe('gladia')
+        expect(config.transcription_config.custom_params.summarization).toBe(true)
+        expect(config.transcription_config.custom_params.summarization_config.type).toBe('bullet_points')
+    })
+
+    it('should accept custom summarization type', () => {
+        const config = getTranscriptionConfig({ summarizationType: 'concise' })
+
+        expect(config.transcription_config.custom_params.summarization_config.type).toBe('concise')
+    })
+
+    it('should include custom vocabulary when provided', () => {
+        const vocabulary = ['MeetingBaas', 'Notula', 'Potts']
+        const config = getTranscriptionConfig({ customVocabulary: vocabulary })
+
+        expect(config.transcription_config.custom_params.custom_vocabulary).toEqual(vocabulary)
+    })
+
+    it('should not include custom_vocabulary key when array is empty', () => {
+        const config = getTranscriptionConfig({ customVocabulary: [] })
+
+        expect(config.transcription_config.custom_params.custom_vocabulary).toBeUndefined()
+    })
+
+    it('should combine summarization and custom vocabulary', () => {
+        const vocabulary = ['API', 'webhook']
+        const config = getTranscriptionConfig({
+            summarizationType: 'general',
+            customVocabulary: vocabulary
+        })
+
+        expect(config.transcription_config.custom_params.summarization).toBe(true)
+        expect(config.transcription_config.custom_params.summarization_config.type).toBe('general')
+        expect(config.transcription_config.custom_params.custom_vocabulary).toEqual(vocabulary)
     })
 })

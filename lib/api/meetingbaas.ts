@@ -69,7 +69,7 @@ export async function createMeetingBot(
     meeting_url: config.meeting_url.trim(),
     recording_mode: config.recording_mode || "speaker_view",
     allow_multiple_bots: config.allow_multiple_bots ?? false, // Prevent duplicate bots
-    ...getTranscriptionConfig(),
+    ...getTranscriptionConfig({ customVocabulary: config.custom_vocabulary }),
   }
 
   // Add optional entry message
@@ -460,6 +460,7 @@ export async function scheduleCalendarBot(
     allOccurrences?: boolean
     seriesId?: string
     userId?: string  // IMPORTANT: Pass user_id for webhook association
+    customVocabulary?: string[]  // Custom vocabulary for improved transcription
     timeoutConfig?: {
       waitingRoomTimeout?: number
       noOneJoinedTimeout?: number
@@ -478,7 +479,7 @@ export async function scheduleCalendarBot(
     bot_name: botConfig?.botName || "Notula - AI Notetaker",
     bot_image: botConfig?.botImage || BOT_AVATAR_URL,
     recording_mode: botConfig?.recordingMode || "speaker_view",
-    ...getTranscriptionConfig(),
+    ...getTranscriptionConfig({ customVocabulary: botConfig?.customVocabulary }),
   }
 
   // Add timeout config - default to 300 seconds (5 min) for all timeouts

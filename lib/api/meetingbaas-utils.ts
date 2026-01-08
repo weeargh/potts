@@ -289,18 +289,36 @@ export function getCallbackConfig(): Record<string, unknown> | null {
 
 /**
  * Get default transcription config with summarization
+ * 
+ * According to MeetingBaas API docs:
+ * - custom_vocabulary: Array of strings for domain-specific terms
+ * - custom_vocabulary_config: Advanced config with intensity/pronunciations
+ * 
+ * @param options.summarizationType - Type of summarization (general, bullet_points, concise)
+ * @param options.customVocabulary - Array of custom vocabulary terms for improved accuracy
  */
-export function getTranscriptionConfig(options?: { summarizationType?: "general" | "bullet_points" | "concise" }) {
+export function getTranscriptionConfig(options?: {
+    summarizationType?: "general" | "bullet_points" | "concise"
+    customVocabulary?: string[]
+}) {
+    const customParams: Record<string, unknown> = {
+        summarization: true,
+        summarization_config: {
+            type: options?.summarizationType || "bullet_points"
+        }
+    }
+
+    // Add custom vocabulary if provided
+    // MeetingBaas/Gladia uses this to improve recognition of domain-specific terms
+    if (options?.customVocabulary && options.customVocabulary.length > 0) {
+        customParams.custom_vocabulary = options.customVocabulary
+    }
+
     return {
         transcription_enabled: true,
         transcription_config: {
             provider: "gladia",
-            custom_params: {
-                summarization: true,
-                summarization_config: {
-                    type: options?.summarizationType || "bullet_points"
-                }
-            }
+            custom_params: customParams
         }
     }
 }

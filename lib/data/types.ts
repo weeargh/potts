@@ -97,6 +97,7 @@ export interface CreateBotRequest {
   recording_mode?: "speaker_view" | "gallery_view" | "audio_only"
   allow_multiple_bots?: boolean  // Default true, set false to prevent duplicates
   entry_message?: string  // Message bot sends when joining
+  custom_vocabulary?: string[]  // Custom vocabulary for improved transcription
   timeout_config?: {
     waiting_room_timeout?: number  // 120-1800 seconds
     no_one_joined_timeout?: number  // 120-1800 seconds

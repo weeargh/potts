@@ -114,6 +114,7 @@ export async function POST(request: NextRequest) {
 async function processWebhook(payload: { event: string; data: unknown }, log: typeof webhookLogger) {
     const event = payload.event
     const data = payload.data as Record<string, unknown>
+    const startTime = Date.now()
 
     // #region agent log
     fetch('http://127.0.0.1:7242/ingest/74db1504-71c7-4e46-b851-eb31403ad8ad', {
@@ -134,63 +135,91 @@ async function processWebhook(payload: { event: string; data: unknown }, log: ty
     }).catch(() => { })
     // #endregion
 
-    log.info(`Webhook received: ${event}`, {
+    // Comprehensive webhook monitoring
+    log.info(`📥 Webhook received: ${event}`, {
+        event_type: event,
         bot_id: data?.bot_id,
-        status: (data?.status as { code?: string })?.code || data?.error_code
+        event_id: data?.event_id,
+        calendar_id: data?.calendar_id,
+        status: (data?.status as { code?: string })?.code || data?.error_code,
+        timestamp: new Date().toISOString(),
     })
 
-    switch (event) {
-        // Bot events
-        case "bot.completed":
-            await handleBotCompleted(data as unknown as BotCompletedData)
-            break
+    let success = true
+    let errorMessage: string | undefined
 
-        case "bot.failed":
-            await handleBotFailed(data as unknown as Parameters<typeof handleBotFailed>[0])
-            break
+    try {
+        switch (event) {
+            // Bot events
+            case "bot.completed":
+                await handleBotCompleted(data as unknown as BotCompletedData)
+                break
 
-        case "bot.status_change":
-            await handleStatusChange(data as unknown as Parameters<typeof handleStatusChange>[0])
-            break
+            case "bot.failed":
+                await handleBotFailed(data as unknown as Parameters<typeof handleBotFailed>[0])
+                break
 
-        // Calendar events
-        case "calendar.connection_created":
-            await handleCalendarConnectionCreated(data as unknown as Parameters<typeof handleCalendarConnectionCreated>[0])
-            break
+            case "bot.status_change":
+                await handleStatusChange(data as unknown as Parameters<typeof handleStatusChange>[0])
+                break
 
-        case "calendar.connection_updated":
-            await handleCalendarConnectionUpdated(data as unknown as Parameters<typeof handleCalendarConnectionUpdated>[0])
-            break
+            // Calendar events
+            case "calendar.connection_created":
+                await handleCalendarConnectionCreated(data as unknown as Parameters<typeof handleCalendarConnectionCreated>[0])
+                break
 
-        case "calendar.connection_deleted":
-            await handleCalendarConnectionDeleted(data as unknown as Parameters<typeof handleCalendarConnectionDeleted>[0])
-            break
+            case "calendar.connection_updated":
+                await handleCalendarConnectionUpdated(data as unknown as Parameters<typeof handleCalendarConnectionUpdated>[0])
+                break
 
-        case "calendar.connection_error":
-            await handleCalendarConnectionError(data as unknown as Parameters<typeof handleCalendarConnectionError>[0])
-            break
+            case "calendar.connection_deleted":
+                await handleCalendarConnectionDeleted(data as unknown as Parameters<typeof handleCalendarConnectionDeleted>[0])
+                break
 
-        case "calendar.events_synced":
-            await handleCalendarEventsSynced(data as unknown as Parameters<typeof handleCalendarEventsSynced>[0])
-            break
+            case "calendar.connection_error":
+                await handleCalendarConnectionError(data as unknown as Parameters<typeof handleCalendarConnectionError>[0])
+                break
 
-        case "calendar.event_created":
-            await handleCalendarEventCreated(data as unknown as Parameters<typeof handleCalendarEventCreated>[0])
-            break
+            case "calendar.events_synced":
+                await handleCalendarEventsSynced(data as unknown as Parameters<typeof handleCalendarEventsSynced>[0])
+                break
 
-        case "calendar.event_updated":
-            await handleCalendarEventUpdated(data as unknown as Parameters<typeof handleCalendarEventUpdated>[0])
-            break
+            case "calendar.event_created":
+                await handleCalendarEventCreated(data as unknown as Parameters<typeof handleCalendarEventCreated>[0])
+                break
 
-        case "calendar.event_cancelled":
-            await handleCalendarEventCancelled(data as unknown as Parameters<typeof handleCalendarEventCancelled>[0])
-            break
+            case "calendar.event_updated":
+                await handleCalendarEventUpdated(data as unknown as Parameters<typeof handleCalendarEventUpdated>[0])
+                break
 
-        default:
-            log.warn(`Unhandled webhook event: ${event}`)
+            case "calendar.event_cancelled":
+                await handleCalendarEventCancelled(data as unknown as Parameters<typeof handleCalendarEventCancelled>[0])
+                break
+
+            default:
+                log.warn(`⚠️ Unhandled webhook event: ${event}`)
+        }
+    } catch (error) {
+        success = false
+        errorMessage = error instanceof Error ? error.message : String(error)
+        log.error(`❌ Webhook processing failed: ${event}`, error instanceof Error ? error : undefined, {
+            event_type: event,
+            bot_id: data?.bot_id,
+        })
     }
 
-    return NextResponse.json({ success: true })
+    // Log webhook completion with metrics
+    const processingTime = Date.now() - startTime
+    log.info(`${success ? '✅' : '❌'} Webhook processed: ${event}`, {
+        event_type: event,
+        success,
+        processing_time_ms: processingTime,
+        bot_id: data?.bot_id,
+        event_id: data?.event_id,
+        error: errorMessage,
+    })
+
+    return NextResponse.json({ success })
 }
 
 // =============================================================================
@@ -381,12 +410,29 @@ async function handleBotCompleted(data: BotCompletedData) {
                 utterances = await getTranscript(data.transcription)
 
                 // Also fetch raw transcription if available (includes Gladia summaries)
+                // Per MeetingBaas docs: raw_transcription contains provider's raw response including:
+                // - Gladia summaries (if summarization was enabled)
+                // - Language detection results
+                // - Additional metadata
                 let rawData: unknown = null
                 if (data.raw_transcription) {
+                    webhookLogger.info("Downloading raw transcription for Gladia metadata", { bot_id })
                     try {
                         const rawResponse = await fetch(data.raw_transcription, { cache: "no-store" })
                         if (rawResponse.ok) {
                             rawData = await rawResponse.json()
+
+                            // Log what we received from Gladia for debugging
+                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                            const rawObj = rawData as any
+                            webhookLogger.info("Raw transcription received from Gladia", {
+                                bot_id,
+                                has_transcriptions: !!rawObj?.transcriptions,
+                                transcription_count: rawObj?.transcriptions?.length || 0,
+                                has_summary: !!rawObj?.transcriptions?.[0]?.transcription?.summary,
+                                detected_languages: rawObj?.transcriptions?.[0]?.transcription?.languages,
+                                has_metadata: !!rawObj?.transcriptions?.[0]?.transcription?.metadata,
+                            })
                         }
                     } catch (rawErr) {
                         webhookLogger.warn("Failed to fetch raw transcription", {
@@ -409,7 +455,11 @@ async function handleBotCompleted(data: BotCompletedData) {
                         rawData: rawData as object,
                     }
                 })
-                webhookLogger.info("Transcript saved", { bot_id, utterance_count: utterances.length })
+                webhookLogger.info("Transcript saved", {
+                    bot_id,
+                    utterance_count: utterances.length,
+                    has_raw_data: !!rawData,
+                })
             } catch (transcriptErr) {
                 webhookLogger.error("Failed to fetch/save transcript", transcriptErr instanceof Error ? transcriptErr : undefined, {
                     bot_id
@@ -892,6 +942,20 @@ async function handleCalendarEventCreated(data: {
         return
     }
 
+    // Fetch user's custom vocabulary for transcription
+    const userSettings = await prisma.userSettings.findUnique({
+        where: { userId },
+        select: { customVocabulary: true }
+    })
+    const customVocabulary = (userSettings?.customVocabulary as string[]) ?? []
+
+    if (customVocabulary.length > 0) {
+        webhookLogger.info("Using custom vocabulary for transcription", {
+            user_id: userId,
+            vocabulary_count: customVocabulary.length,
+        })
+    }
+
     for (const instance of data.instances) {
         // Skip events without meeting URLs
         if (!instance.meeting_url) continue
@@ -922,6 +986,7 @@ async function handleCalendarEventCreated(data: {
                     seriesId: data.series_id,
                     userId,  // Pass userId for webhook association
                     allOccurrences: data.event_type === "recurring",
+                    customVocabulary,  // Pass user's custom vocabulary for improved transcription
                 })
                 placeholderBotId = result.bot_id || placeholderBotId
 
